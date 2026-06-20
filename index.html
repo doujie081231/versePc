@@ -2279,6 +2279,7 @@
                 <div id="page-accounts" class="page">
                     <div class="page-header">
                         <h2>账户管理</h2>
+                        <p class="page-subtitle">点击账户以预览皮肤、查看UUID</p>
                         <div class="page-actions">
                             <button id="add-ms-account-btn" class="btn btn-primary">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
@@ -2881,6 +2882,7 @@
                                     <div class="wallpaper-option" data-wallpaper="customVideo" onclick="selectWallpaper(this)">
                                         <span class="wallpaper-name">自定义视频</span>
                                     </div>
+                                    <span class="form-hint">除 无背景 选项，其他选项均会大量消耗性能与内存。开启后卡顿为正常现象</span>
                                 </div>
                             </div>
                             <div class="form-group" id="panorama-theme-group" style="display:none;">
@@ -3300,6 +3302,17 @@
                         <div class="java-download-tip" style="margin-top: 16px; padding: 12px 16px; background: var(--bg-tertiary); border-radius: var(--radius); border-left: 3px solid var(--orange); font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
                             <strong style="color: var(--orange);">提示：</strong>下载将自动尝试国内镜像源（中科大/清华/中科院），如全部失败会回退到 Adoptium 官方。你也可以前往 <a href="https://adoptium.net/zh-CN/temurin/releases/" target="_blank" style="color: var(--accent); text-decoration: underline;">Adoptium 官网</a> 手动下载，安装后在上方「已安装的Java」中点击刷新即可自动检测。
                         </div>
+                    </div>
+
+                    <div class="card" style="margin-top: 20px;">
+                        <h3>Minecraft JE 版本与 JDK 版本对应关系</h3>
+                        <div>1.16.4 或更早 : JDK 8</div>   
+                        <div>1.16.5 : JDK 8 或 11</div>
+                        <div>1.17 - 1.17.1 : JDK 16</div>   
+                        <div>1.18 - 1.18.2 : JDK 17</div>   
+                        <div>1.19 - 1.20.6 : JDK 17 或更新</div>   
+                        <div>1.21.x : JDK 21</div>   
+                        <div>2x.x : JDK 25</div>
                     </div>
                     
                     <div id="java-download-progress" class="card" style="margin-top: 20px; display: none;">
