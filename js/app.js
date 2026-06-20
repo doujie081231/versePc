@@ -7823,16 +7823,35 @@ async function handleLaunch() {
 
         if (depCheck.forgeCore && !depCheck.forgeCore.ok && depCheck.forgeCore.missing && depCheck.forgeCore.missing.length > 0) {
             const missingNames = depCheck.forgeCore.missing.map(m => `${m.desc} (${m.name.split(':').pop()})`).join('、');
-            const errorMsg = `Forge核心库文件缺失 (${depCheck.forgeCore.missing.length}个): ${missingNames}`;
-            setLaunchStep('files-check', 'error', errorMsg);
-            showLaunchError(
-                `Forge 核心库文件缺失，无法启动游戏。\n缺失文件：${missingNames}\n\n请前往"版本设置 → 文件修复"功能修复此问题，或重新安装该 Forge 版本。`,
-                { forgeMissing: depCheck.forgeCore.missing, repairHint: 'forge_core_missing', versionId }
-            );
-            launchBtn.disabled = false;
-            homeLaunchBtn.disabled = false;
-            window._versepc_launching = false;
-            return;
+            const downloadable = depCheck.forgeCore.missing.filter(m => {
+                const entry = (depCheck.missingFiles || []).find(f => f.path === m.path);
+                return entry && entry.url;
+            });
+            if (downloadable.length > 0) {
+                setLaunchStep('files-check', 'warning', `Forge核心库缺失 ${depCheck.forgeCore.missing.length} 个，正在自动修复...`);
+                const dlResult = await API.launchGame(versionId, { checkOnly: true });
+                if (dlResult.needDownload && dlResult.sessionId) {
+                    pollLaunchDownload(dlResult.sessionId, versionId, requiredJava);
+                    window._versepc_launching = false;
+                    return;
+                }
+            }
+            const stillMissing = depCheck.forgeCore.missing.filter(m => {
+                const entry = (depCheck.missingFiles || []).find(f => f.path === m.path);
+                return !entry || !entry.url;
+            });
+            if (stillMissing.length > 0 || downloadable.length === 0) {
+                const errorMsg = `Forge核心库文件缺失 (${depCheck.forgeCore.missing.length}个): ${missingNames}`;
+                setLaunchStep('files-check', 'error', errorMsg);
+                showLaunchError(
+                    `Forge 核心库文件缺失，无法启动游戏。\n缺失文件：${missingNames}\n\n请前往"版本设置 → 文件修复"功能修复此问题，或重新安装该 Forge 版本。`,
+                    { forgeMissing: depCheck.forgeCore.missing, repairHint: 'forge_core_missing', versionId }
+                );
+                launchBtn.disabled = false;
+                homeLaunchBtn.disabled = false;
+                window._versepc_launching = false;
+                return;
+            }
         }
 
         setLaunchStep('natives-extract', 'running', '正在解压本地库...');

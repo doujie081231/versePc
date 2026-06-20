@@ -6689,9 +6689,26 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
             for (const m of result.forgeCore.missing) {
                 const existingEntry = result.missingFiles.find(f => f.path === m.path);
                 if (!existingEntry) {
+                    let forgeUrl = '';
+                    if (m.name && m.name.includes(':')) {
+                        const parts = m.name.split(':');
+                        if (parts.length >= 3) {
+                            const groupId = parts[0];
+                            const artifactId = parts[1];
+                            const version = parts[2];
+                            const groupPath = groupId.replace(/\./g, '/');
+                            const classifierSuffix = parts[3] ? `-${parts[3]}` : '';
+                            const mavenFile = `${artifactId}-${version}${classifierSuffix}.jar`;
+                            if (groupId === 'net.minecraft') {
+                                forgeUrl = `https://libraries.minecraft.net/${groupPath}/${artifactId}/${version}/${mavenFile}`;
+                            } else {
+                                forgeUrl = `https://maven.minecraftforge.net/${groupPath}/${artifactId}/${version}/${mavenFile}`;
+                            }
+                        }
+                    }
                     result.missingFiles.push({
                         type: 'forge_core',
-                        url: '',
+                        url: forgeUrl,
                         path: m.path,
                         sha1: '',
                         size: 0,
@@ -13241,7 +13258,14 @@ async function installFabric(gameVersion, loaderVersion, onProgress = null) {
                     if (!isJarIntact(libPath)) {
                         const mavenBaseUrl = lib.url || 'https://maven.fabricmc.net/';
                         const downloadUrl = `${mavenBaseUrl}${mavenGroupPath}/${name}/${ver}/${jarName}`;
-                        fabLibsToDownload.push({ lib, url: downloadUrl, libPath });
+                        const altUrls = [];
+                        if (mavenBaseUrl !== 'https://repo1.maven.org/maven2/') {
+                            altUrls.push(`https://repo1.maven.org/maven2/${mavenGroupPath}/${name}/${ver}/${jarName}`);
+                        }
+                        if (mavenBaseUrl !== 'https://maven.fabricmc.net/') {
+                            altUrls.push(`https://maven.fabricmc.net/${mavenGroupPath}/${name}/${ver}/${jarName}`);
+                        }
+                        fabLibsToDownload.push({ lib, url: downloadUrl, libPath, altUrls });
                     }
                 }
             }
@@ -13277,13 +13301,27 @@ async function installFabric(gameVersion, loaderVersion, onProgress = null) {
                             }
                             try { fs.unlinkSync(item.libPath); } catch (_) {}
                         }
-                        await downloadFileWithMirror(item.url, item.libPath);
-                        if (expectedSha1) {
-                            const actual = await calculateSHA1(item.libPath);
-                            if (actual !== expectedSha1) {
-                                try { fs.unlinkSync(item.libPath); } catch (_) {}
-                                throw new Error(`SHA1 mismatch: ${path.basename(item.libPath)}`);
+                        const urlsToTry = [item.url, ...(item.altUrls || [])];
+                        let downloaded = false;
+                        for (const tryUrl of urlsToTry) {
+                            try {
+                                await downloadFileWithMirror(tryUrl, item.libPath);
+                                if (expectedSha1) {
+                                    const actual = await calculateSHA1(item.libPath);
+                                    if (actual !== expectedSha1) {
+                                        try { fs.unlinkSync(item.libPath); } catch (_) {}
+                                        continue;
+                                    }
+                                }
+                                downloaded = true;
+                                break;
+                            } catch (e) {
+                                console.warn(`[Fabric] 下载失败 ${tryUrl}: ${e.message}`);
+                                try { if (fs.existsSync(item.libPath)) fs.unlinkSync(item.libPath); } catch (_) {}
                             }
+                        }
+                        if (!downloaded) {
+                            throw new Error(`所有下载源失败: ${path.basename(item.libPath)}`);
                         }
                     })().then(() => {
                         completed++;
@@ -14594,13 +14632,11 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null) {
 
         try { fs.unlinkSync(installerPath); } catch (_) {}
 
-        const vJsonPath = path.join(versionDir, `${versionId}.json`);
         try {
-            fs.writeFileSync(vJsonPath, JSON.stringify(versionJson, null, 2));
-            console.log(`[NeoForge] Wrote version JSON: ${vJsonPath}`);
-        } catch (writeErr) {
-            console.error(`[NeoForge] Failed to write version JSON:`, writeErr.message);
-        }
+            const finalJson = JSON.parse(fs.readFileSync(path.join(versionDir, `${versionId}.json`), 'utf-8'));
+            fs.writeFileSync(path.join(versionDir, `${versionId}.json`), JSON.stringify(finalJson, null, 2));
+            console.log(`[NeoForge] Final version JSON written, libs=${(finalJson.libraries||[]).length}`);
+        } catch (_) {}
 
         if (onProgress) onProgress(1, 'NeoForge 安装完成');
         return { success: true, versionId: versionId, libsMissing: neoLibFailures };
@@ -15054,6 +15090,20 @@ async function mergeNeoForgeLoaderToVersion(versionId, gameVersion, neoVersion, 
                 existingJvm.add(jvmArg);
             }
         }
+    }
+
+    if (profileLibs.length > 0) {
+        const existingLibNames = new Set((versionJson.libraries || []).map(l => l.name).filter(Boolean));
+        let added = 0;
+        for (const lib of profileLibs) {
+            if (lib.name && !existingLibNames.has(lib.name)) {
+                versionJson.libraries = versionJson.libraries || [];
+                versionJson.libraries.push(lib);
+                existingLibNames.add(lib.name);
+                added++;
+            }
+        }
+        console.log(`[NeoForge] 合并 install_profile 库: +${added}, total=${versionJson.libraries.length}`);
     }
 
     if (onProgress) onProgress(0.5, '下载 NeoForge 库文件...');
