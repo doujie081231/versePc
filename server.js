@@ -13760,10 +13760,13 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         forgeVersion = forgeVersion.slice(gameVersion.length + 1);
     }
 
-    const mcMajor = parseInt(gameVersion.split('.')[1]);
+    const mcMajor = parseInt(gameVersion.split('.')[0]);
     if (mcMajor >= 20 && forgeVersion.split('.').length >= 3) {
         const isNeoForgeInstall = forgeVersion.includes('neoforge') || forgeVersion.includes('neoforged');
         if (isNeoForgeInstall) {
+            return await installNeoForge(gameVersion, forgeVersion, onProgress);
+        }
+        if (mcMajor >= 26) {
             return await installNeoForge(gameVersion, forgeVersion, onProgress);
         }
     }
@@ -13966,6 +13969,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         '--libs', LIBRARIES_DIR,
         '--verdir', versionDir,
         '--forgever', versionStr,
+        '--gamever', gameVersion,
         '--config', configPath,
         '--appdir', path.resolve(__dirname)
     ];

@@ -14,6 +14,7 @@ const ROOT = params.root;
 const LIBS = params.libs;
 const VER_DIR = params.verdir;
 const FORGE_VER = params.forgever;
+const GAME_VER = params.gamever || '';
 const CONFIG = params.config;
 const APP_DIR = params.appdir || '';
 
@@ -60,7 +61,7 @@ if (!fs.existsSync(versionDir)) fs.mkdirSync(versionDir, { recursive: true });
 
 const vjId = path.basename(versionDir);
 vj.id = vjId;
-if (!vj.inheritsFrom) vj.inheritsFrom = FORGE_VER;
+if (!vj.inheritsFrom) vj.inheritsFrom = GAME_VER || FORGE_VER;
 
 const vjPath = path.join(versionDir, `${vjId}.json`);
 fs.writeFileSync(vjPath, JSON.stringify(vj, null, 2));
