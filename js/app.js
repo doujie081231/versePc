@@ -11476,9 +11476,212 @@ async function loadPersonalizeSettings() {
             if (glassCheckbox) glassCheckbox.checked = enabled;
             toggleGlassEffect(enabled);
         }
+
+        // 加载自定义配色方案（如果有）
+        try {
+            const cs = await window.electronAPI.store.get('versepc_color_scheme');
+            if (cs) {
+                let parsed = null;
+                if (typeof cs === 'string') {
+                    try { parsed = JSON.parse(cs); } catch (e) { parsed = null; }
+                } else if (typeof cs === 'object') parsed = cs;
+                if (parsed) {
+                    applyColorScheme(parsed);
+                }
+            }
+        } catch (e) {}
     } catch (e) {
         console.error('[Settings] Load personalize settings error:', e);
     }
+}
+
+// 解析并应用配色方案文本或 JSON
+function parseColorScheme(text, fileName) {
+    // try JSON first
+    try {
+        const obj = JSON.parse(text);
+        if (typeof obj === 'object' && obj !== null) {
+            return obj;
+        }
+    } catch (e) {}
+
+    // fallback to key=value or key: value lines
+    const lines = text.split(/\r?\n/);
+    const out = {};
+    lines.forEach(line => {
+        const t = line.trim();
+        if (!t || t.startsWith('#') || t.startsWith('//')) return;
+        const sep = t.includes('=') ? '=' : (t.includes(':') ? ':' : null);
+        if (!sep) return;
+        const parts = t.split(sep);
+        const key = parts.shift().trim();
+        const value = parts.join(sep).trim();
+        if (!key) return;
+        const varName = key.startsWith('--') ? key : `--${key}`;
+        out[varName] = value;
+    });
+    return out;
+}
+
+function applyColorScheme(obj) {
+    if (!obj || typeof obj !== 'object') return;
+
+    // color utilities
+    function parseColorStr(s) {
+        if (!s) return null;
+        s = String(s).trim();
+        // hex
+        const hexm = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+        if (hexm) {
+            let hex = hexm[1];
+            if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+            const r = parseInt(hex.substr(0,2),16);
+            const g = parseInt(hex.substr(2,2),16);
+            const b = parseInt(hex.substr(4,2),16);
+            return {r,g,b,a:1};
+        }
+        // rgb(a)
+        const rgbm = s.match(/^rgba?\(([0-9.,\s]+)\)$/i);
+        if (rgbm) {
+            const parts = rgbm[1].split(',').map(x=>x.trim());
+            const r = parseInt(parts[0])||0; const g = parseInt(parts[1])||0; const b = parseInt(parts[2])||0; const a = parts[3]!==undefined?parseFloat(parts[3]):1;
+            return {r,g,b,a};
+        }
+        return null;
+    }
+    function rgbaToCss(c) { if (!c) return ''; return `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a!==undefined?c.a:1})`; }
+    function clamp(v,min,max){return Math.max(min,Math.min(max,Math.round(v)));}
+    function blend(c,tar,p){ return { r: clamp(c.r + (tar.r-c.r)*p,0,255), g: clamp(c.g + (tar.g-c.g)*p,0,255), b: clamp(c.b + (tar.b-c.b)*p,0,255), a: (c.a+ (tar.a - (c.a||1))*p) }; }
+    function lighten(c,amt){ return blend(c,{r:255,g:255,b:255,a:1},amt); }
+    function darken(c,amt){ return blend(c,{r:0,g:0,b:0,a:1},amt); }
+    function colorLuminance(c){ return (0.2126*c.r + 0.7152*c.g + 0.0722*c.b)/255; }
+    function contrastTextFor(c){ return colorLuminance(c) > 0.55 ? '#111111' : '#ffffff'; }
+
+    // normalize keys: accept either simplified keys or full var names
+    const themeKey = obj['--theme-color'] || obj['theme-color'] || obj['--theme'] || obj['theme'] || obj['--accent'] || obj['--ai-accent'];
+    const accentKey = obj['--accent-color'] || obj['accent-color'] || obj['--accent'] || obj['accent'];
+    const accentCol = parseColorStr(accentKey) || parseColorStr(themeKey) || {r:26,g:26,b:26,a:1};
+    let themeCol = parseColorStr(themeKey) || parseColorStr(accentKey) || {r:26,g:26,b:26,a:1};
+
+    // darken very dark theme colors slightly so pure/near-black schemes remain crisp
+    function isVeryDark(c) {
+        return c && c.r <= 24 && c.g <= 24 && c.b <= 24;
+    }
+    if (isVeryDark(themeCol)) {
+        themeCol = darken(themeCol, 0.08);
+    }
+
+    // derive palette
+    const accentHover = lighten(accentCol, 0.12);
+    const accentRim = `rgba(${accentCol.r}, ${accentCol.g}, ${accentCol.b}, 0.22)`;
+    const accentRgb = `${accentCol.r}, ${accentCol.g}, ${accentCol.b}`;
+    const border = `rgba(${accentCol.r}, ${accentCol.g}, ${accentCol.b}, 0.12)`;
+    const sidebarBg = rgbaToCss(lighten(themeCol, 0.35));
+
+    // apply to document root
+    try {
+        document.documentElement.style.setProperty('--titlebar-bg', rgbaToCss(themeCol));
+        document.documentElement.style.setProperty('--sidebar-bg', sidebarBg);
+        document.documentElement.style.setProperty('--accent', rgbaToCss(accentCol));
+        document.documentElement.style.setProperty('--accent-hover', rgbaToCss(accentHover));
+        document.documentElement.style.setProperty('--accent-rgb', accentRgb);
+        document.documentElement.style.setProperty('--accent-text', contrastTextFor(accentCol));
+        document.documentElement.style.setProperty('--border', border);
+        document.documentElement.style.setProperty('--rim', accentRim);
+    } catch (e) {}
+
+    // preview: show three swatches (theme, accent, bg)
+    const preview = document.getElementById('color-scheme-preview');
+    if (preview) {
+        preview.innerHTML = '';
+        const make = (label, css) => {
+            const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.flexDirection='column'; wrap.style.alignItems='center';
+            const sw = document.createElement('div'); sw.style.width='36px'; sw.style.height='36px'; sw.style.borderRadius='6px'; sw.style.background = css; sw.style.border='1px solid rgba(0,0,0,0.06)';
+            const lb = document.createElement('div'); lb.style.fontSize='11px'; lb.style.color='var(--text-secondary)'; lb.style.marginTop='6px'; lb.textContent = label;
+            wrap.appendChild(sw); wrap.appendChild(lb); return wrap;
+        };
+        preview.appendChild(make('主题色', rgbaToCss(themeCol)));
+        preview.appendChild(make('强调色', rgbaToCss(accentCol)));
+    }
+}
+
+// 将任意配色对象简化为最多 12 个友好键
+function simplifyColorScheme(obj) {
+    // target: only three user-facing keys
+    const out = {"--theme-color": null, "--accent-color": null};
+    if (!obj || typeof obj !== 'object') {
+        out['--theme-color'] = '#1a1a1a'; out['--accent-color'] = '#1a1a1a';
+        return out;
+    }
+
+    // helper to pick first matching value
+    function pick(keysArr) {
+        for (const k of keysArr) {
+            if (obj[k]) return obj[k];
+            const lk = k.toLowerCase();
+            // also try fuzzy matching among object keys
+            for (const ok of Object.keys(obj)) {
+                if (ok.toLowerCase().includes(lk)) return obj[ok];
+            }
+        }
+        return null;
+    }
+
+    out['--theme-color'] = pick(['--theme-color','theme','--theme','--titlebar-bg','titlebar','--ai-accent','--accent']) || null;
+    out['--accent-color'] = pick(['--accent-color','accent','--accent','--border','--accent-glow']) || out['--theme-color'];
+
+    // final fallbacks
+    if (!out['--theme-color']) out['--theme-color'] = out['--accent-color'] || '#1a1a1a';
+    if (!out['--accent-color']) out['--accent-color'] = out['--theme-color'] || '#1a73e8';
+
+    return out;
+}
+
+function handleColorSchemeFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const text = e.target.result;
+        const parsed = parseColorScheme(text, file.name);
+        const simplified = simplifyColorScheme(parsed);
+        applyColorScheme(simplified);
+        try {
+            await window.electronAPI.store.set('versepc_color_scheme', JSON.stringify(simplified));
+            const nameEl = document.getElementById('color-scheme-file-name');
+            if (nameEl) nameEl.textContent = file.name;
+            showToast('配色已导入并保存（已简化）', 'success');
+        } catch (err) { showToast('保存配色失败', 'error'); }
+    };
+    reader.readAsText(file);
+}
+
+function exportCurrentColorScheme() {
+    // collect inline style vars that look like --* and export
+    const styles = getComputedStyle(document.documentElement);
+    const out = {};
+    for (let i=0;i<styles.length;i++){
+        const name = styles[i];
+        if (name && name.startsWith('--')) {
+            out[name] = styles.getPropertyValue(name).trim();
+        }
+    }
+    // simplify before export so only theme and accent remain
+    const simplified = simplifyColorScheme(out);
+    const blob = new Blob([JSON.stringify(simplified, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'versepc-color-scheme.json'; a.click(); URL.revokeObjectURL(url);
+}
+
+async function saveColorSchemeManually() {
+    // read previewed scheme from store if exists
+    try {
+        const cs = await window.electronAPI.store.get('versepc_color_scheme');
+        if (cs) {
+            await window.electronAPI.store.set('versepc_color_scheme', cs);
+            showToast('配色已保存', 'success');
+        } else showToast('当前无导入配色可保存', 'info');
+    } catch (e) { showToast('保存失败', 'error'); }
 }
 
 // ─── 其他设置函数 ──────────────────────────────────────────
