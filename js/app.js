@@ -2677,6 +2677,7 @@ async function navigateToPage(pageName) {
                 }
             }
         } catch (e) {}
+
         
         if (!isActivated) {
             if (placeholder) {
@@ -2690,8 +2691,11 @@ async function navigateToPage(pageName) {
                         <p style="color:var(--text-secondary);margin:0 0 32px;font-size:14px;line-height:1.6;max-width:400px;">
                             请前往设置页面输入激活码
                         </p>
-                        <button onclick="showPage('settings')" style="display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;text-decoration:none;border-radius:12px;font-size:16px;font-weight:600;transition:all 0.3s ease;box-shadow:0 4px 15px rgba(102,126,234,0.3);border:none;cursor:pointer;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(102,126,234,0.4)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(102,126,234,0.3)'">
-                            前往设置页面
+                        <button onclick="
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-settings-other').classList.add('active');
+" style="display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;text-decoration:none;border-radius:12px;font-size:16px;font-weight:600;transition:all 0.3s ease;box-shadow:0 4px 15px rgba(102,126,234,0.3);border:none;cursor:pointer;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(102,126,234,0.4)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(102,126,234,0.3)'">
+                            前往 设置页面
                         </button>
                         <p style="color:var(--text-tertiary);margin:24px 0 0;font-size:12px;">
                             在设置页面中输入激活码即可解锁AI助手功能
