@@ -9105,7 +9105,12 @@ function setupWindowControls() {
     const windowModeCheckbox = document.getElementById('setting-window-mode');
     const exitLauncherBtn = document.getElementById('exit-launcher-btn');
 
-    if (windowControls) windowControls.style.display = 'flex';
+    // macOS 使用原生红绿灯，不显示自定义窗口按钮
+    const isMac = window.electronAPI?.platform === 'darwin';
+    if (isMac) {
+        document.body.classList.add('is-mac');
+    }
+    if (windowControls && !isMac) windowControls.style.display = 'flex';
 
     const winBtnMinimize = document.getElementById('win-btn-minimize');
     if (winBtnMinimize) winBtnMinimize.addEventListener('click', () => {
@@ -9205,7 +9210,7 @@ function updateWindowButtons() {
     const maximizeBtn = document.getElementById('win-btn-maximize');
     const restoreBtn = document.getElementById('win-btn-restore');
 
-    if (!controls) return;
+    if (!controls || window.electronAPI?.platform === 'darwin') return;
 
     controls.style.display = 'flex';
     if (isWindowMode) {

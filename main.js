@@ -435,6 +435,8 @@ async function createWindow() {
         windowY = Math.floor((screenHeight - windowHeight) / 2);
     }
 
+    const isMac = process.platform === 'darwin';
+
     mainWindow = new BrowserWindow({
         width: windowWidth,
         height: windowHeight,
@@ -443,6 +445,7 @@ async function createWindow() {
         minWidth: 800,
         minHeight: 450,
         frame: false,
+        ...(isMac ? { titleBarStyle: 'hiddenInset' } : {}),
         show: false,
         backgroundColor: bgColor,
         title: 'VersePC - Minecraft Launcher',

@@ -196,7 +196,7 @@
     "devDependencies": {
         "@ffmpeg-installer/ffmpeg": "^1.1.0",
         "cross-env": "^7.0.3",
-        "electron": "^41.4.0",
+        "electron": "^28.3.3",
         "electron-builder": "^26.8.1",
         "javascript-obfuscator": "^5.4.3",
         "png-to-ico": "^3.0.1"

@@ -144,6 +144,15 @@ body {
     gap: 10px;
 }
 
+/* macOS：为红绿灯按钮留出空间 */
+body.is-mac .title-bar {
+    padding-left: 80px;
+}
+
+body.is-mac .window-controls {
+    display: none !important;
+}
+
 .title-bar-icon {
     width: 20px;
     height: 20px;
