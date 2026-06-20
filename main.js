@@ -65,7 +65,7 @@ const { app } = require('electron');
 try {
     const { exec: _execAsync } = require('child_process');
     const _currentPid = process.pid;
-    _execAsync('wmic process where "name=\'VersePC.exe\'" get ProcessId,ParentProcessId,CommandLine /format:csv 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true }, (_err, _wmicOut) => {
+    _execAsync('chcp 65001 >nul 2>nul && wmic process where "name=\'VersePC.exe\'" get ProcessId,ParentProcessId,CommandLine /format:csv 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true }, (_err, _wmicOut) => {
         try {
             if (_wmicOut) {
                 for (const _line of _wmicOut.split('\n')) {
@@ -1319,6 +1319,7 @@ ipcMain.handle('memory-optimize', async () => {
     const path = require('path');
     const os = require('os');
     const psScript = `$ErrorActionPreference = 'Continue'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -MemberDefinition '[DllImport("psapi.dll")] public static extern int EmptyWorkingSet(IntPtr hwProc);' -Name "W32PSAPI" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
 Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] private static extern int SetSystemInformation(uint infoClass, IntPtr info, uint length);' -Name "W32SysInfo" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null

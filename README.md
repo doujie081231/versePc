@@ -54,43 +54,6 @@
 | macOS | macOS 10.15 (Intel/Apple Silicon) | macOS 14+ |
 | Linux | 64-bit 发行版 | Ubuntu 22.04+ / Arch |
 
-## 安装指南
-
-### Windows
-1. 下载最新版本的 `VersePC-Setup-x.x.x.exe` 安装程序
-2. 运行安装程序，按向导完成安装
-3. 从开始菜单或桌面快捷方式启动
-
-### macOS
-1. 下载 `VersePC-x.x.x.dmg` 或 `VersePC-x.x.x.zip`
-2. 打开 DMG 文件，将 VersePC 拖入应用程序文件夹
-3. 首次运行请在系统偏好设置中允许打开
-
-### Linux
-1. 下载对应格式的安装包（AppImage / .deb / .rpm）
-2. 根据发行版选择安装方式：
-   - **AppImage**: 赋予执行权限后直接运行
-   - **DEB**: `sudo dpkg -i VersePC-x.x.x.deb`
-   - **RPM**: `sudo rpm -i VersePC-x.x.x.rpm`
-
-## 从源码构建
-
-```bash
-# 克隆仓库
-git clone https://github.com/doujie081231/versePc.git
-cd versePc
-
-# 安装依赖
-npm install
-
-# 开发模式运行
-npm start
-
-# 构建发行版
-npm run build:win    # Windows
-npm run build:mac    # macOS
-npm run build:linux  # Linux
-```
 
 ## 技术架构
 
@@ -134,7 +97,7 @@ VersePC/
 ## 联系方式
 
 - **GitHub**: [doujie081231/versePc](https://github.com/doujie081231/versePc)
-- **问题反馈**: [Issues](https://github.com/doujie081231/versePc/issues)
+- **问题反馈**: [议题](https://github.com/doujie081231/versePc/issues)
 
 ---
 
