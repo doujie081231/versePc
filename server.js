@@ -8160,6 +8160,51 @@ function detectSystemJava() {
         } catch (e) {}
     }
 
+    if (process.platform === 'darwin') {
+        const homeDir = process.env.HOME || '~';
+
+        const macJavaPaths = [
+            '/Library/Java/JavaVirtualMachines',
+            '/opt/homebrew/opt',
+            '/opt/homebrew/Cellar',
+            '/usr/local/opt',
+            path.join(homeDir, '.sdkman', 'candidates', 'java'),
+            path.join(homeDir, '.jdks'),
+            path.join(homeDir, 'Library', 'Java', 'JavaVirtualMachines'),
+            path.join(homeDir, '.minecraft', 'runtime'),
+            path.join(DATA_DIR, 'runtime'),
+        ];
+
+        for (const searchPath of macJavaPaths) {
+            if (fs.existsSync(searchPath)) {
+                searchFolderForJava(searchPath, 3);
+            }
+        }
+
+        try {
+            const javaHomeOutput = execSync('/usr/libexec/java_home -V 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            const javaHomeMatches = javaHomeOutput.matchAll(/"([^"]+)"\s+\(([^)]+)\)/g);
+            for (const m of javaHomeMatches) {
+                const jhPath = m[1];
+                const javaExe = path.join(jhPath, 'bin', 'java');
+                if (fs.existsSync(javaExe)) {
+                    addJavaEntry(javaExe, 'system');
+                }
+            }
+        } catch (e) {}
+
+        try {
+            const whichOutput = execSync('which -a java 2>/dev/null', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            const whichLines = whichOutput.split('\n').filter(l => l.trim());
+            for (const line of whichLines) {
+                const trimmed = line.trim();
+                if (trimmed && fs.existsSync(trimmed)) {
+                    addJavaEntry(trimmed, 'system');
+                }
+            }
+        } catch (e) {}
+    }
+
     return results;
 }
 
@@ -10945,6 +10990,9 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         if (!jvmArgs.some(a => a.includes('minecraft.client.jar'))) {
             jvmArgs.push(`-Dminecraft.client.jar=${mainJarPath}`);
         }
+        if (!jvmArgs.some(a => a.includes('earlyLoadingWindow'))) {
+            jvmArgs.push('-Dfml.earlyLoadingWindow=false');
+        }
     }
 
     // JPMS module flags (--add-exports/--add-opens) only work on Java 9+
@@ -12338,6 +12386,19 @@ Write-Output $after`;
         if (process.platform === 'linux' && nativesDir) {
             const existingLdPath = spawnOptions.env.LD_LIBRARY_PATH || '';
             spawnOptions.env.LD_LIBRARY_PATH = [nativesDir, existingLdPath].filter(Boolean).join(':');
+        }
+
+        if (process.platform === 'darwin' && nativesDir) {
+            const existingDyldPath = spawnOptions.env.DYLD_LIBRARY_PATH || '';
+            spawnOptions.env.DYLD_LIBRARY_PATH = [nativesDir, existingDyldPath].filter(Boolean).join(':');
+        }
+
+        if (!spawnOptions.env.JAVA_HOME && javaPath) {
+            try {
+                const detectedHome = path.dirname(path.dirname(javaPath));
+                spawnOptions.env.JAVA_HOME = detectedHome;
+                console.log(`[Launch] 自动设置 JAVA_HOME: ${detectedHome}`);
+            } catch (e) {}
         }
 
         try {
