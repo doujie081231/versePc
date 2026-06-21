@@ -58,7 +58,6 @@ process.on('exit', (code) => {
 
 // ============================================================================
 // 单实例锁 - 必须在所有初始化之前执行，防止重复启动导致闪窗口
-// 参考 PCL2 SingleInstanceService 的设计：第二个实例立即退出，让第一个实例接管
 // ============================================================================
 const { app } = require('electron');
 
@@ -117,7 +116,6 @@ try {
 
 // ============================================================================
 // V8 内存上限 - 根据系统内存动态设置，防止渲染进程 OOM 崩溃
-// 参考 PCL2 的内存分配策略：根据可用内存分级配置
 // ============================================================================
 try {
     const osMod = require('os');
@@ -488,7 +486,7 @@ async function createWindow() {
     }, 8000);
     mainWindow.webContents.once('did-finish-load', () => clearTimeout(_gpuWatchdog));
 
-    // 渲染进程崩溃检测 - 参考 PCL2 的崩溃处理策略
+    // 渲染进程崩溃检测
     let rendererCrashRetries = 0;
     const MAX_RENDERER_RETRIES = 2;
     mainWindow.webContents.on('render-process-gone', (event, details) => {
@@ -2308,7 +2306,7 @@ function registerModsIPC() {
         }
     });
 
-    // 获取默认模组路径（参考PCL2智能版本隔离逻辑自动定位mods文件夹）
+    // 获取默认模组路径（智能版本隔离逻辑自动定位mods文件夹）
     let _defaultModPathCache = { path: '', time: 0 };
     const DEFAULT_MOD_PATH_TTL = 30000;
     ipcMain.handle("getDefaultModPath", async () => {

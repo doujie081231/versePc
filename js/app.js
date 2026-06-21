@@ -225,7 +225,7 @@ const dlManager = {
         }).join('');
     },
     buildStageHistoryHtml(stages) {
-        // PCL-style stage list: shows each import stage with progress % and status icon
+        // stage list: shows each import stage with progress % and status icon
         return stages.map(s => {
             const progress = s.progress || 0;
             let statusIcon = '○';

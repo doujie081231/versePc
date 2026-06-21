@@ -1,4 +1,3 @@
-// PCL Mod Translation Database - Source: mcmod.cn via PCL2
 const PCL_SLUG_MAP = {
     "73373": "化学 (MineChem) - 已失效",
     "2668920": "茶风·纪事 (Tea the Story) - 资源包-音乐补充包",

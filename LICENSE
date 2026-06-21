@@ -1,6 +1,12 @@
-﻿VersePC Source Visible License (VPSVL) v1.0
+VersePC Source Visible License (VPSVL) v2.0
 
 Copyright (c) 2026 doujie081231
+
+致谢声明：
+VersePC 在开发过程中参考了 PCL (Plain Craft Launcher) 的部分实现思路。
+PCL 项目地址：https://github.com/Meloong-Git/PCL
+PCL 原作者：龙腾猫跃
+本软件是独立开发的产品，与 PCL 官方无关。
 
 1. DEFINITIONS
    "Software" refers to the VersePC source code and all associated files.

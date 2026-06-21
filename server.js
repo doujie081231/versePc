@@ -120,7 +120,7 @@ function getAdmZip() {
 }
 
 // ============================================================================
-// PCL2-style shared HTTP Agent with connection pooling
+// Shared HTTP Agent with connection pooling
 // ============================================================================
 const SHARED_HTTPS_AGENT = new https.Agent({
     keepAlive: true,
@@ -4319,8 +4319,7 @@ async function fetchWithRacing(tasks, timeout = 15000) {
 }
 
 // ============================================================================
-// PCL2风格多线程高速下载引擎 (Multi-Thread Chunk Download Engine)
-// 参考PCL2 ModNet.vb：大文件Range Header分块 + 多连接并行下载 + 合并
+// Multi-Thread Chunk Download Engine
 // ============================================================================
 
 const DownloadManager = {
@@ -4360,7 +4359,6 @@ const DownloadManager = {
     acquireConnection() {
         // Enforce a real global connection cap so high-concurrency callers
         // (chunked downloads + parallel mods) queue instead of flooding the CDN.
-        // PCL2 keeps parallel downloads <= 8; 32 lets a few files download in parallel.
         if (this.activeConnections >= this.connectionLimit) return false;
         this.activeConnections++;
         this._startSpeedTimer();
@@ -5176,9 +5174,8 @@ function getMirrorUrl(originalUrl) {
 }
 
 async function downloadPCLStyle(urls, destPath, { onProgress = null, maxChunks = 16, abortSignal = null, stallTimeout = 45000 } = {}) {
-    // [CRITICAL] PCL式下载前清理路径中与目录同名的文件。
+    // [CRITICAL] 下载前清理路径中与目录同名的文件。
     // 此函数不调用 ensureDir，需要自行处理 ENOTDIR 问题（同 ensureDir 的原理）。
-    // [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理块。
     {
         const d = path.dirname(destPath);
         try {
@@ -5460,9 +5457,8 @@ function getLoaderInfoForJava(versionId, versionJson) {
     const gameArgsStr = JSON.stringify(gameArgsArr).toLowerCase();
     const isBootStrap = mainClassLower.includes('bootstraplauncher');
 
-    // 参照 PCL2 ModMinecraft.cs:1195 — 扫描整个合并后 JSON 文本检测 Forge
+    // 扫描整个合并后 JSON 文本检测 Forge
     // 不仅检查 libraries 数组，还检查 arguments、mainClass 等所有字段
-    // PCL2 使用 realJson.Contains("minecraftforge")，这里等价实现
     const fullJsonStr = JSON.stringify(versionJson).toLowerCase();
 
     // launchwrapper 是 Java 9+ 不兼容的旧版加载器主类
@@ -5479,14 +5475,14 @@ function getLoaderInfoForJava(versionId, versionJson) {
         gameArgsStr.includes('--fml.neoforgeversion') ||
         (isBootStrap && fullJsonStr.includes('neoforged'));
 
-    // Forge 检测 — 参照 PCL2: realJson.Contains("minecraftforge") && !realJson.Contains("net.neoforge")
+    // Forge 检测
     result.isForge = !result.isNeoForge && (
         mainClassLower.includes('forge') || mainClassLower.includes('modlauncher') ||
         versionIdLower.includes('forge') || fullJsonStr.includes('minecraftforge') ||
         (isBootStrap && (gameArgsStr.includes('--fml.forgeversion') || fullJsonStr.includes('net.minecraftforge')))
     );
 
-    // 参照 PCL2: 如果 mainClass 是 launchwrapper 但未通过其他方式检测到 Forge
+    // 如果 mainClass 是 launchwrapper 但未通过其他方式检测到 Forge
     // 这类版本（旧版 Forge / LiteLoader / 自定义整合包）仍需要 Java 8
     if (result.isLegacyLaunchwrapper && !result.isForge && !result.isLiteLoader && !result.isOptiFine && !result.isFabric && !result.isNeoForge) {
         result.isForge = fullJsonStr.includes('forge') || gameArgsStr.includes('fml');
@@ -5534,7 +5530,7 @@ function getJavaVersionRange(versionId, versionJson = null) {
     const loader = getLoaderInfoForJava(versionId, versionJson);
     const ver = _parseMcVersion(loader.baseVersion);
 
-    // 1. JSON 中明确要求的 javaVersion（PCL2 优先级最高）
+    // 1. JSON 中明确要求的 javaVersion（优先级最高）
     if (versionJson && versionJson.javaVersion && versionJson.javaVersion.majorVersion) {
         const majorVer = parseInt(versionJson.javaVersion.majorVersion, 10);
         if (majorVer > 0) {
@@ -5650,7 +5646,7 @@ function getJavaVersionRange(versionId, versionJson = null) {
         }
     }
 
-    // 5. 参照 PCL2: launchwrapper（旧版 Forge / LiteLoader / 自定义整合包）与 Java 9+ 不兼容
+    // 5. launchwrapper（旧版 Forge / LiteLoader / 自定义整合包）与 Java 9+ 不兼容
     //    AppClassLoader → URLClassLoader 强转在 Java 9+ 会崩溃
     //    这是最高优先级的安全约束，必须无条件生效
     if (loader.isLegacyLaunchwrapper) {
@@ -6029,12 +6025,12 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
         return null;
     }
 
-    // 排序策略参照 PCL2：
+    // 排序策略：
     // 1) 主版本距离要求最近
     // 2) 启动器自带 Java 优先
     // 3) 64 位优先
     // 4) 用户设置优先
-    // 5) 范围内最高小版本号（PCL2: ThenByDescending j.Installation.Version）
+    // 5) 范围内最高小版本号
     suitable.sort((a, b) => {
         const aDist = Math.abs(a.majorVersion - requiredVersion) - (a.source === 'user_setting' ? 1 : 0);
         const bDist = Math.abs(b.majorVersion - requiredVersion) - (b.source === 'user_setting' ? 1 : 0);
@@ -9459,7 +9455,7 @@ function mergeVersionJson(parent, child) {
         }
     }
 
-    // PCL2-style: Also merge Fabric/NeoForge non-standard argument groups
+    // Also merge Fabric/NeoForge non-standard argument groups
     for (const argGroupKey of ['default-user-jvm', 'default-user-game', 'default-jvm', 'default-game']) {
         const childGroup = child.arguments?.[argGroupKey] || [];
         const parentGroup = parent.arguments?.[argGroupKey] || [];
@@ -10221,7 +10217,7 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
         }
     }
 
-    // === 合并 inheritsFrom 父版本库 (PCL 核心策略: Forge 版本通常只有 Forge 特有库, Vanilla 库在父版本中) ===
+    // === 合并 inheritsFrom 父版本库 ===
     const resolvedParents = new Set();
     let currentJson = versionJson;
     while (currentJson.inheritsFrom && !resolvedParents.has(currentJson.inheritsFrom)) {
@@ -10434,7 +10430,7 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
     return dedupedClasspath.join(process.platform === 'win32' ? ';' : ':');
 }
 
-// PCL2核心策略: Natives目录三级回退，避免非ASCII路径导致 UnsatisfiedLinkError
+// Natives目录三级回退，避免非ASCII路径导致 UnsatisfiedLinkError
 function getNativesFolder(versionId) {
     const primary = path.join(VERSIONS_DIR, versionId, 'natives');
     const isAscii = /^[\x00-\x7F]*$/.test(primary);
@@ -10477,7 +10473,7 @@ function extractNatives(versionJson, versionId, externalVersionDir = null) {
         nativeSearchBases.push(path.join(externalRoot, 'libraries'));
     }
     nativeSearchBases.push(LIBRARIES_DIR);
-    // PCL2策略: 整合包的LWJGL natives可能来自用户已有的 .minecraft 目录
+    // 整合包的LWJGL natives可能来自用户已有的 .minecraft 目录
     const mcLibDir = path.join(MINECRAFT_DIR, 'libraries');
     if (mcLibDir !== LIBRARIES_DIR && fs.existsSync(mcLibDir)) {
         nativeSearchBases.push(mcLibDir);
@@ -10506,7 +10502,7 @@ function extractNatives(versionJson, versionId, externalVersionDir = null) {
                 if (entryName.endsWith('.gitkeep') || entryName.endsWith('.gitignore')) continue;
                 if (entryName.endsWith('.sha1') || entryName.endsWith('.git')) continue;
                 const ext = path.extname(entryName).toLowerCase();
-                // PCL2核心策略: 只解压原生二进制文件(.dll/.so/.dylib)，不解压配置文件
+                // 只解压原生二进制文件(.dll/.so/.dylib)，不解压配置文件
                 // 配置文件冲突会导致模组加载异常
                 const isNative = ext === '.dll' || ext === '.so' || ext === '.jnilib' || ext === '.dylib';
                 if (isNative) {
@@ -10641,7 +10637,7 @@ function extractNatives(versionJson, versionId, externalVersionDir = null) {
         extractNativeJar(nativePath);
     }
 
-    // === 合并 inheritsFrom 父版本 Natives (PCL 策略: 遗留 Forge 的 LWJGL natives 在父版本中) ===
+    // === 合并 inheritsFrom 父版本 Natives ===
     const resolvedNativesParents = new Set();
     let currentNativesJson = versionJson;
     while (currentNativesJson.inheritsFrom && !resolvedNativesParents.has(currentNativesJson.inheritsFrom)) {
@@ -10921,7 +10917,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
     });
 
-    // === 复制 Forge log4j2.xml 到游戏目录 (PCL 策略: 遗留 Forge 需要) ===
+    // === 复制 Forge log4j2.xml 到游戏目录 ===
     const forgeLog4jPath = path.join(VERSIONS_DIR, actualVersionId, 'log4j2.xml');
     if (fs.existsSync(forgeLog4jPath)) {
         const gameLog4jPath = path.join(gameDir, 'log4j2.xml');
@@ -11044,7 +11040,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
             }
         } catch(e) {}
 
-        // Default to G1GC to match PCL2. ZGC/ShenandoahGC can cause stutter in Forge modpacks
+        // Default to G1GC. ZGC/ShenandoahGC can cause stutter in Forge modpacks
         // because they behave poorly when mods allocate many short-lived objects.
         if (maxMemMB <= 1024) {
             jvmArgs.push('-XX:+UseSerialGC');
@@ -11220,7 +11216,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         }
     }
 
-    // PCL2-style: Collect JVM args from standard `jvm` and Fabric/NeoForge non-standard groups (`default-user-jvm`, etc.)
+    // Collect JVM args from standard `jvm` and Fabric/NeoForge non-standard groups (`default-user-jvm`, etc.)
     const jvmArgSources = [];
     if (versionJson.arguments?.jvm) jvmArgSources.push(...versionJson.arguments.jvm);
     // Fabric meta API v2 uses "default-user-jvm" group
@@ -11315,7 +11311,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         }
     }
 
-    // PCL2核心策略: 始终固定添加 java.library.path，不依赖 JSON 参数中的变量替换
+    // 始终固定添加 java.library.path，不依赖 JSON 参数中的变量替换
     // 整合包的版本JSON可能缺少此参数或变量替换失败，导致 UnsatisfiedLinkError
     const hasJvmLibraryPath = jvmArgs.some(a => typeof a === 'string' && a.includes('java.library.path'));
     if (!hasJvmLibraryPath) {
@@ -11394,7 +11390,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
 
     const gameArgs = [];
 
-    // PCL2-style: Collect game args from standard `game` and Fabric/NeoForge non-standard groups (`default-user-game`, etc.)
+    // Collect game args from standard `game` and Fabric/NeoForge non-standard groups (`default-user-game`, etc.)
     const gameArgSources = [];
     if (versionJson.arguments?.game) gameArgSources.push(...versionJson.arguments.game);
     // Fabric meta API v2 uses "default-user-game" group
@@ -11691,7 +11687,7 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
 
     console.log(`[LaunchGame] JSON已解析, mainClass: ${versionJson.mainClass}, inheritsFrom: ${versionJson.inheritsFrom}`);
 
-    // PCL2核心策略: 启动前验证Natives完整性，缺失时自动重新解压
+    // 启动前验证Natives完整性，缺失时自动重新解压
     {
         const nativesDir = getNativesFolder(cleanVersionId);
         const criticalNatives = ['lwjgl.dll', 'lwjgl_opengl.dll', 'lwjgl_glfw.dll', 'lwjgl_stb.dll', 'lwjgl_tinyfd.dll',
@@ -12002,7 +11998,7 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
             forgeSearchDirs.push(LIBRARIES_DIR);
             const homeLib = path.join(os.homedir(), 'AppData', 'Roaming', '.minecraft', 'libraries');
             if (fs.existsSync(homeLib) && !forgeSearchDirs.includes(homeLib)) forgeSearchDirs.push(homeLib);
-            // 扫描其他启动器的库目录 (PCL 兼容策略: 复用 HMCL/PCL/BakaXL 已下载的 Forge 库)
+            // 扫描其他启动器的库目录
             const hmclLib = path.join(os.homedir(), 'AppData', 'Roaming', '.hmcl', 'libraries');
             if (fs.existsSync(hmclLib) && !forgeSearchDirs.includes(hmclLib)) forgeSearchDirs.push(hmclLib);
             const bakaLib = path.join(os.homedir(), 'AppData', 'Roaming', '.bakalx', 'libraries');
@@ -16491,7 +16487,7 @@ async function handleHttpRequest(pathname, req, res, parsedUrl) {
 
 // ─── 整合包本地导入（拖拽安装入口）───
 
-// PCL2策略: 重复版本名自动去重，避免覆盖已有版本
+// 重复版本名自动去重，避免覆盖已有版本
 function _dedupeVersionId(baseName) {
     let candidate = baseName;
     let counter = 2;
@@ -16503,7 +16499,7 @@ function _dedupeVersionId(baseName) {
     return candidate;
 }
 
-// PCL2核心策略: 整合包导入后修复损坏的JAR文件
+// 整合包导入后修复损坏的JAR文件
 // AdmZip解压大型JAR或特殊压缩格式时可能产生损坏文件
 async function _repairCorruptedModJars(versionDir) {
     const modsDir = path.join(versionDir, 'mods');
@@ -16596,7 +16592,7 @@ function isModpackPathSafe(entryPath) {
     return true;
 }
 
-// PCL2策略: overrides解压JAR文件后的完整性校验
+// overrides解压JAR文件后的完整性校验
 async function _extractOverridesWithVerification(zip, versionDir, entries) {
     let extracted = 0;
     let corrupted = 0;
@@ -16705,7 +16701,7 @@ async function importModpackFromPath(filePath, onProgress, targetVersion = '', a
         return { success: false, error: '打开整合包文件失败，文件可能损坏或为不支持的压缩包格式' };
     }
 
-    // PCL2策略: 检测加密ZIP
+    // 检测加密ZIP
     try {
         const entries = zip.getEntries();
         const encrypted = entries.some(e => e.header && (e.header.flags & 1) === 1);
@@ -17170,7 +17166,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                 }
             }
 
-            // PCL2-style re-merge: vanilla JSON as base, merge loader on top
+            // re-merge: vanilla JSON as base, merge loader on top
             try {
                 const lvJsonPath = path.join(VERSIONS_DIR, loaderVersionId, `${loaderVersionId}.json`);
                 if (fs.existsSync(lvJsonPath)) {
@@ -17467,7 +17463,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                         });
                     } else {
                         // [CRITICAL - 2026-06-21] retries必须>=2！之前是0，下载失败一次就放弃导致大量mod丢失。
-                        // PCL会多次重试，VersePC也应该如此。stallTimeout从60s增加到120s适应慢网络。
+                        // 多次重试，stallTimeout从60s增加到120s适应慢网络。
                         await _dlSingle(tryUrl, destPath, {
                             onProgress: _modOnProgress, retries: 3, abortSignal,
                             timeout: _modTimeout, stallTimeout: 120000, agent: _modAgent
@@ -18633,7 +18629,7 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
     }
 }
 
-// HMCL整合包格式 (modpack.json) - PCL2支持的格式之一
+// HMCL整合包格式 (modpack.json)
 async function _importHmcl(zip, hmclEntry, filePath, progress, targetVersion = '', abortSignal = null) {
     console.log(`[HMCL] ========== 开始解析 HMCL 整合包 ==========`);
     let hmclMeta;
@@ -25562,7 +25558,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                             };
                             console.log(`[Modpack] 开始下载: ${safeName} (URL: ${downloadUrl?.substring(0, 80)}...)`);
                             const _mpUrls = getMirrorUrls(downloadUrl);
-                            // PCL2-style: probe mirrors and sort by speed before downloading
+                            // probe mirrors and sort by speed before downloading
                             let _sortedUrls = _mpUrls;
                             try {
                                 const _probed = await probeMirrorSpeed(_mpUrls, 65536, 5000);
@@ -25570,7 +25566,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                             } catch (e) { console.warn(`[Modpack] 测速失败，使用默认顺序: ${e.message}`); }
                             console.log(`[Modpack] 下载源顺序: ${_sortedUrls.map(u => u.substring(0, 60)).join(' -> ')}`);
 
-                            // Dynamic chunk count based on file size (PCL2 logic)
+                            // Dynamic chunk count based on file size
                             let _maxChunks = 16;
                             if (fileSize > 0) {
                                 if (fileSize <= 1 * 1024 * 1024) _maxChunks = 1;
@@ -27292,7 +27288,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                 break;
             }
 
-            // ===== 文件系统浏览 API (PCL2 风格文件浏览器) =====
+            // ===== 文件系统浏览 API =====
             
             case '/api/filesystem/browse': {
                 const fsBody = await readBody();
@@ -27989,7 +27985,7 @@ function analyzeExitCode(code, versionId) {
                     analysis.reason = 'Java版本过高导致模块访问限制';
                     analysis.suggestion = '请降级Java版本或使用Java 8/17启动';
                 } else if (content.includes('ClassCastException') && content.includes('AppClassLoader') && content.includes('URLClassLoader')) {
-                    // 参照 PCL2: 低版本 Forge/launchwrapper 与 Java 9+ 不兼容
+                    // 低版本 Forge/launchwrapper 与 Java 9+ 不兼容
                     // 例如 1.7.10/1.12.2 整合包在 Java 17 下会因 launchwrapper 内部 AppClassLoader → URLClassLoader 强转失败
                     analysis.reason = 'Java版本过高（旧版 launchwrapper 不兼容 Java 9+）';
                     analysis.suggestion = '该整合包需要 Java 8 才能运行。\n修复: 1)启动设置→Java→选择 JRE 8  2)启动器设置中关闭"自动选择高版本 Java"';

@@ -1024,7 +1024,7 @@ function getModChineseName(modId, englishName) {
     const id = (modId || '').toLowerCase().replace(/[\s_]/g, '-');
     const name = (englishName || '').toLowerCase().replace(/[\s_]/g, '-');
 
-    // 第1级：PCL 翻译数据库（8000+ 条，最权威）
+    // 第1级：翻译数据库（8000+ 条，最权威）
     if (typeof PCL_SLUG_MAP !== 'undefined') {
         if (PCL_SLUG_MAP[id]) return PCL_SLUG_MAP[id];
         if (PCL_SLUG_MAP[name]) return PCL_SLUG_MAP[name];
