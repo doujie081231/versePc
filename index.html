@@ -2857,12 +2857,14 @@
                                         <span class="theme-name">白色</span>
                                     </div>
                                 </div>
+                            </br>
                                 <div class="form-group">
                                     <label>导入配色方案（测试版，效果不稳定）</label>
                                     <div style="display:flex;align-items:center;gap:8px;">
                                         <input id="color-scheme-file-input" type="file" accept=".json,.txt" style="display:none" onchange="handleColorSchemeFile(this)">
                                         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('color-scheme-file-input').click()">从文件导入</button>
-                                        <button class="btn btn-ghost btn-sm" onclick="exportCurrentColorScheme()">导出当前配色</button>
+                                        <button class="btn btn-ghost btn-sm" onclick="generateDefaultColorSchemeFile()">生成默认配色方案文件</button>
+                                        <button class="btn btn-danger btn-sm" onclick="deleteAndRestoreScheme()" title="删除已保存的配色并恢复为白色主题">删除并还原</button>
                                         <span id="color-scheme-file-name" style="color:var(--text-secondary);font-size:13px">未导入</span>
                                     </div>
                                     <div id="color-scheme-preview" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"></div>
