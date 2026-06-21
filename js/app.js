@@ -11644,6 +11644,15 @@ function handleColorSchemeFile(input) {
     reader.onload = async (e) => {
         const text = e.target.result;
         const parsed = parseColorScheme(text, file.name);
+        // 如果 import 的原始配置值全部为空（空字符串或仅空白），则视为无效
+        if (parsed && typeof parsed === 'object') {
+            const vals = Object.values(parsed).filter(v => v !== undefined && v !== null);
+            const allEmpty = vals.length > 0 && vals.every(v => String(v).trim() === '');
+            if (allEmpty) {
+                showToast('颜色值为空，该配置文件无效，请导入有效的配置文件', 'error');
+                return;
+            }
+        }
         const simplified = simplifyColorScheme(parsed);
         applyColorScheme(simplified);
         try {
@@ -11673,6 +11682,17 @@ function exportCurrentColorScheme() {
     const a = document.createElement('a'); a.href = url; a.download = 'versepc-color-scheme.json'; a.click(); URL.revokeObjectURL(url);
 }
 
+function generateDefaultColorSchemeFile() {
+    const out = {
+        "--theme-color": "",
+        "--accent-color": ""
+    };
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'versepc-default-color-scheme.json'; a.click(); URL.revokeObjectURL(url);
+    showToast('已生成默认配色方案文件', 'success');
+}
+
 async function saveColorSchemeManually() {
     // read previewed scheme from store if exists
     try {
@@ -11682,6 +11702,45 @@ async function saveColorSchemeManually() {
             showToast('配色已保存', 'success');
         } else showToast('当前无导入配色可保存', 'info');
     } catch (e) { showToast('保存失败', 'error'); }
+}
+
+async function deleteAndRestoreScheme() {
+    const confirmed = await showConfirmDialog('删除并还原配色', '确定要删除保存的配色方案并恢复为白色主题外观吗？此操作不可撤销。', '删除并还原', '取消');
+    if (!confirmed) return;
+    try {
+        // remove stored scheme
+        await window.electronAPI.store.delete('versepc_color_scheme');
+    } catch (e) {
+        // ignore
+    }
+
+    // remove custom CSS vars related to color scheme
+    const vars = ['--theme-color','--accent-color','--titlebar-bg','--sidebar-bg','--accent','--accent-hover','--accent-rgb','--accent-text','--border','--rim','--accent-glow'];
+    vars.forEach(v => document.documentElement.style.removeProperty(v));
+
+    // restore to light theme visuals
+    const lightEl = document.querySelector('.theme-option[data-theme="light"]');
+    if (lightEl) {
+        selectTheme(lightEl);
+    } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+    }
+
+    // update UI indicators
+    const nameEl = document.getElementById('color-scheme-file-name');
+    if (nameEl) nameEl.textContent = '未导入';
+    const colorPreviewDot = document.getElementById('color-preview-dot');
+    if (colorPreviewDot) colorPreviewDot.style.background = '';
+
+    // clear preview swatches and custom color inputs
+    const preview = document.getElementById('color-scheme-preview');
+    if (preview) preview.innerHTML = '';
+    const customVal = document.getElementById('custom-color-value');
+    if (customVal) customVal.textContent = '';
+    const accentInput = document.getElementById('custom-accent-color');
+    if (accentInput) accentInput.value = '';
+
+    showToast('已删除配色并恢复为白色主题', 'success');
 }
 
 // ─── 其他设置函数 ──────────────────────────────────────────

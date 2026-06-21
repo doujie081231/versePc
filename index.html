@@ -346,6 +346,10 @@
                         <div class="card">
                             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                                 <h3 style="margin:0;">已安装版本</h3>
+                                <hint style="font-size:12px;color:var(--text-muted);">如果某些版本消失了，尝试重启/点击旁边刷新按钮</hint>
+                                <button id="refresh-versions-btn" class="btn btn-secondary">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:4px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>刷新
+                                </button>
                                 <button class="btn btn-secondary btn-sm" onclick="addExternalFolder()" style="font-size:12px;padding:4px 10px;">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:4px;"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
                                     添加已有文件夹
@@ -2356,13 +2360,15 @@
                                     <label>认证服务器</label>
                                     <select id="tp-server-preset" class="select-input" style="margin-bottom:8px;">
                                         <option value="">选择预设服务器...</option>
-                                        <option value="https://littleskin.cn/api/yggdrasil">LittleSkin</option>
-                                        <option value="https://skin2.mcdb.cn/api/yggdrasil">MCBBS皮肤站</option>
+                                        <option value="https://littleskin.cn/api/yggdrasil">LittleSkin Yggdrasil</option>
+                                        <option value="https://skin2.mcdb.cn/api/yggdrasil">MCBBS 皮肤站</option>
                                         <option value="https://auth.mc-user.com:233/api/yggdrasil">皮肤站2</option>
+
                                         <option value="custom">自定义服务器</option>
                                     </select>
                                     <input type="text" id="tp-server-url" class="text-input" placeholder="https://littleskin.cn/api/yggdrasil">
                                     <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">输入Yggdrasil认证服务器API地址</div>
+                                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">更多信息参考 Yggdrasil 手册： <a href="https://manual.littlesk.in/yggdrasil/" target="_blank">manual.littlesk.in/yggdrasil/</a></div>
                                 </div>
                                 <div class="form-group">
                                     <label>邮箱 / 用户名</label>
@@ -2851,12 +2857,14 @@
                                         <span class="theme-name">白色</span>
                                     </div>
                                 </div>
+                            </br>
                                 <div class="form-group">
                                     <label>导入配色方案（测试版，效果不稳定）</label>
                                     <div style="display:flex;align-items:center;gap:8px;">
                                         <input id="color-scheme-file-input" type="file" accept=".json,.txt" style="display:none" onchange="handleColorSchemeFile(this)">
                                         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('color-scheme-file-input').click()">从文件导入</button>
-                                        <button class="btn btn-ghost btn-sm" onclick="exportCurrentColorScheme()">导出当前配色</button>
+                                        <button class="btn btn-ghost btn-sm" onclick="generateDefaultColorSchemeFile()">生成默认配色方案文件</button>
+                                        <button class="btn btn-danger btn-sm" onclick="deleteAndRestoreScheme()" title="删除已保存的配色并恢复为白色主题">删除并还原</button>
                                         <span id="color-scheme-file-name" style="color:var(--text-secondary);font-size:13px">未导入</span>
                                     </div>
                                     <div id="color-scheme-preview" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"></div>
@@ -3459,7 +3467,7 @@
             if (str == null) return '';
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
-
+<!-- 豆杰带着他的石山走过来了... -->
         api.updater.onStatusChanged(({ channel, data }) => {
             const statusArea = document.getElementById('updater-status-area');
             const checkBtn = document.getElementById('updater-check-btn');
