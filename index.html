@@ -534,7 +534,7 @@
                         <div class="verdetail-section-title">下载源</div>
                         <div class="download-source-list" id="download-source-list">
                             <label class="ds-item">
-                                <input type="radio" name="download-source" value="china-first">
+                                <input type="radio" name="download-source" value="china-first" checked>
                                 <span class="ds-name">国内优先（默认）</span>
                                 <span class="ds-desc">优先使用 BMCLAPI/MCIM 国内镜像，失败后回退官方源</span>
                             </label>
@@ -3350,13 +3350,14 @@
 
                         <div class="card" style="margin-top: 20px;">
                             <h3>Minecraft JE 版本与 JDK 版本对应关系</h3>
-                            <div>1.16.4 或更早 : JDK 8</div>   
-                            <div>1.16.5 : JDK 8 或 11</div>
-                            <div>1.17 - 1.17.1 : JDK 16</div>   
-                            <div>1.18 - 1.18.2 : JDK 17</div>   
-                            <div>1.19 - 1.20.6 : JDK 17 或更新</div>   
-                            <div>1.21.x : JDK 21</div>   
-                            <div>2x.x : JDK 25</div>
+                            <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+                                <div>1.16.4 或更早 : JDK 8 (Java 8)</div>   
+                                <div>1.16.5 : JDK 8 或 11 (Java 8/11)</div>
+                                <div>1.17 - 1.17.1 : JDK 16 (Java 16)</div>   
+                                <div>1.18 - 1.20.6 : JDK 17 (Java 17)</div>   
+                                <div>1.21.x : JDK 21 (Java 21)</div>   
+                                <div>26.x 及更高版本 : JDK 25 (Java 25)</div>
+                            </div>
                         </div>
                         
                         <div class="java-download-tip" style="margin-top: 16px; padding: 12px 16px; background: var(--bg-tertiary); border-radius: var(--radius); border-left: 3px solid var(--orange); font-size: 13px; color: var(--text-secondary); line-height: 1.6;">

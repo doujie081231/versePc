@@ -14653,7 +14653,13 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
                                             );
                                             let ok = false;
                                             for (const u of urls) {
-                                                try { await downloadFileWithMirror(u, lp, null, 1, null, 60000); ok = true; break; } catch (_) {}
+                                                try {
+                                                    await downloadFileWithMirror(u, lp, null, 1, null, 60000);
+                                                    ok = true;
+                                                    break;
+                                                } catch (dlErr) {
+                                                    console.warn(`[installForge] 下载 ${lib.name} 从 ${u} 失败: ${dlErr.message}`);
+                                                }
                                             }
                                             if (!ok) throw new Error('所有下载源均失败');
                                         } else {
@@ -17214,17 +17220,22 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     else if (fabricVer) loaderVersionId = `fabric-loader-${fabricVer}-${mcVersion}`;
 
     if (isNewVersionDir) {
+        const _baseStartTime = Date.now();
         progress('base', '正在准备基础版本...', 10);
-        console.log(`[mrpack] 确保基础版本存在: ${mcVersion}`);
+        console.log(`[mrpack] >>> [步骤1/5] 确保基础版本存在: ${mcVersion} (${new Date().toLocaleTimeString()})`);
         const baseResult = await ensureBaseVersionInstalled(mcVersion, (msg, pct) => {
+            const elapsed = Math.round((Date.now() - _baseStartTime) / 1000);
+            console.log(`[mrpack] 基础版本进度: ${msg} (${Math.round(pct)}%, ${elapsed}s)`);
             progress('base', msg || '正在准备基础版本...', Math.min(Math.round(pct * 0.15), 15));
         });
+        console.log(`[mrpack] <<< [步骤1/5] 基础版本完成: error=${baseResult.error || '无'}, alreadyInstalled=${baseResult.alreadyInstalled || false}, 耗时=${Math.round((Date.now() - _baseStartTime) / 1000)}s`);
         if (baseResult.error) {
             try { if (fs.existsSync(versionDir)) fs.rmSync(versionDir, { recursive: true, force: true }); } catch (e) {}
             return { success: false, versionId, error: baseResult.error };
         }
 
         if (forgeVer || neoforgeVer || fabricVer) {
+            const _loaderStartTime = Date.now();
             progress('loader-install', '正在安装模组加载器...', 12);
             try {
                 if (forgeVer) {
@@ -17235,11 +17246,15 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                             console.log(`[mrpack] Forge ${loaderVersionId} 库文件缺失，重新安装`);
                             try { fs.rmSync(path.join(VERSIONS_DIR, loaderVersionId), { recursive: true, force: true }); } catch (e) {}
                         }
-                        console.log(`[mrpack] 安装模组加载器: Forge ${forgeVer} (MC ${mcVersion})`);
+                        console.log(`[mrpack] >>> [步骤2/5] 安装Forge: ${forgeVer} (MC ${mcVersion}) (${new Date().toLocaleTimeString()})`);
+                        const _forgeStartTime = Date.now();
                         const ir = await installForge(mcVersion, forgeVer, (p, msg) => {
                             const np = p > 1 ? p / 100 : p;
+                            const elapsed = Math.round((Date.now() - _forgeStartTime) / 1000);
+                            console.log(`[mrpack] Forge安装进度: ${(np*100).toFixed(1)}% (${elapsed}s) ${msg || ''}`);
                             progress('loader-install', msg || '正在安装Forge...', 12 + np * 3);
                         });
+                        console.log(`[mrpack] <<< [步骤2/5] Forge安装完成: success=${ir.success}, 耗时=${Math.round((Date.now() - _forgeStartTime) / 1000)}s, error=${ir.error || '无'}`);
                         if (!ir.success) throw new Error(ir.error);
                     } else {
                         console.log(`[mrpack] Forge ${loaderVersionId} 已安装，跳过`);
@@ -17252,11 +17267,15 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                             console.log(`[mrpack] NeoForge ${loaderVersionId} 库文件缺失，重新安装`);
                             try { fs.rmSync(path.join(VERSIONS_DIR, loaderVersionId), { recursive: true, force: true }); } catch (e) {}
                         }
-                        console.log(`[mrpack] 安装模组加载器: NeoForge ${neoforgeVer} (MC ${mcVersion})`);
+                        console.log(`[mrpack] >>> [步骤2/5] 安装NeoForge: ${neoforgeVer} (MC ${mcVersion}) (${new Date().toLocaleTimeString()})`);
+                        const _nfStartTime = Date.now();
                         const ir = await installNeoForge(mcVersion, neoforgeVer, (p, msg) => {
                             const np = p > 1 ? p / 100 : p;
+                            const elapsed = Math.round((Date.now() - _nfStartTime) / 1000);
+                            console.log(`[mrpack] NeoForge安装进度: ${(np*100).toFixed(1)}% (${elapsed}s) ${msg || ''}`);
                             progress('loader-install', msg || '正在安装NeoForge...', 12 + np * 3);
                         });
+                        console.log(`[mrpack] <<< [步骤2/5] NeoForge安装完成: success=${ir.success}, 耗时=${Math.round((Date.now() - _nfStartTime) / 1000)}s, error=${ir.error || '无'}`);
                         if (!ir.success) throw new Error(ir.error);
                     } else {
                         console.log(`[mrpack] NeoForge ${loaderVersionId} 已安装，跳过`);
@@ -17284,11 +17303,16 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                             console.log(`[mrpack] Fabric ${loaderVersionId} 需要重新安装`);
                             try { fs.rmSync(path.join(VERSIONS_DIR, loaderVersionId), { recursive: true, force: true }); } catch (e) {}
                         }
-                        console.log(`[mrpack] 安装模组加载器: Fabric ${fabricVer} (MC ${mcVersion})`);
+                        console.log(`[mrpack] >>> [步骤2/5] 安装Fabric: ${fabricVer} (MC ${mcVersion}) (${new Date().toLocaleTimeString()})`);
+                        const _fabStartTime = Date.now();
                         const ir = await installFabric(mcVersion, fabricVer, (p, msg) => {
                             const np = p > 1 ? p / 100 : p;
+                            const elapsed = Math.round((Date.now() - _fabStartTime) / 1000);
+                            console.log(`[mrpack] Fabric安装进度: ${(np*100).toFixed(1)}% (${elapsed}s) ${msg || ''}`);
                             progress('loader-install', msg || '正在安装Fabric...', 12 + np * 3);
                         });
+                        console.log(`[mrpack] <<< [步骤2/5] Fabric安装完成: success=${ir.success}, 耗时=${Math.round((Date.now() - _fabStartTime) / 1000)}s, error=${ir.error || '无'}`);
+
                         if (!ir.success) throw new Error(ir.error);
                     } else {
                         console.log(`[mrpack] Fabric ${loaderVersionId} 已安装，跳过`);
@@ -17301,6 +17325,8 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             }
         }
 
+        const _vcStartTime = Date.now();
+        console.log(`[mrpack] >>> [步骤3/5] 创建版本配置 (${new Date().toLocaleTimeString()})`);
         progress('version-config', '正在创建版本配置...', 14);
 
         function pcl2StyleMerge(baseJson, loaderJson, versionId) {
@@ -17458,6 +17484,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             console.log(`[mrpack] 创建版本JSON: ${versionId}.json (无加载器)`);
         }
 
+        console.log(`[mrpack] <<< [步骤3/5] 版本配置完成, 耗时=${Math.round((Date.now() - _vcStartTime) / 1000)}s`);
         progress('loader', '模组加载器就绪', 15);
     }
 
@@ -17474,13 +17501,17 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
 
         // If the existing JSON still has inheritsFrom, it's an old-style version that needs merging
         if (existingJson && existingJson.inheritsFrom && loaderVersionId) {
-            console.log(`[mrpack] 检测到旧版版本JSON (inheritsFrom: ${existingJson.inheritsFrom})，重新合并加载器`);
+            const _remergeStartTime = Date.now();
+            console.log(`[mrpack] >>> [重合并] 检测到旧版版本JSON (inheritsFrom: ${existingJson.inheritsFrom})，重新合并加载器 (${new Date().toLocaleTimeString()})`);
             progress('base-fix', `正在同步加载器到 ${loaderVersionId}...`, 12);
 
             if (mcVersion) {
+                console.log(`[mrpack] [重合并] 确保基础版本: ${mcVersion}`);
                 const baseFix = await ensureBaseVersionInstalled(mcVersion, (msg, pct) => {
+                    console.log(`[mrpack] [重合并] 基础版本进度: ${msg} (${Math.round(pct)}%)`);
                     progress('base-fix', msg || `正在准备 ${mcVersion}...`, 12);
                 });
+                console.log(`[mrpack] [重合并] 基础版本完成: error=${baseFix.error || '无'}`);
                 if (baseFix.error) {
                     console.error(`[mrpack] 基础版本 ${mcVersion} 安装失败: ${baseFix.error}`);
                     try { if (fs.existsSync(versionDir)) fs.rmSync(versionDir, { recursive: true, force: true }); } catch (ce) {}
@@ -17496,12 +17527,14 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                         console.log(`[mrpack] ${loaderVersionId} 库文件缺失，重新安装`);
                         try { fs.rmSync(path.join(VERSIONS_DIR, loaderVersionId), { recursive: true, force: true }); } catch (e) {}
                     }
-                    console.log(`[mrpack] 正在安装加载器: ${loaderVersionId}`);
+                    console.log(`[mrpack] [重合并] 正在安装加载器: ${loaderVersionId} (${new Date().toLocaleTimeString()})`);
                     try {
                         let ir;
-                        if (forgeVer) ir = await installForge(mcVersion, forgeVer, (p, msg) => { const np = p > 1 ? p / 100 : p; progress('loader-install', msg || '正在安装Forge...', 13 + np * 2); });
-                        else if (neoforgeVer) ir = await installNeoForge(mcVersion, neoforgeVer, (p, msg) => { const np = p > 1 ? p / 100 : p; progress('loader-install', msg || '正在安装NeoForge...', 13 + np * 2); });
-                        else if (fabricVer) ir = await installFabric(mcVersion, fabricVer, (p, msg) => { const np = p > 1 ? p / 100 : p; progress('loader-install', msg || '正在安装Fabric...', 13 + np * 2); });
+                        const _remergeLdrStart = Date.now();
+                        if (forgeVer) ir = await installForge(mcVersion, forgeVer, (p, msg) => { const np = p > 1 ? p / 100 : p; console.log(`[mrpack] [重合并] Forge进度: ${(np*100).toFixed(1)}% ${msg || ''}`); progress('loader-install', msg || '正在安装Forge...', 13 + np * 2); });
+                        else if (neoforgeVer) ir = await installNeoForge(mcVersion, neoforgeVer, (p, msg) => { const np = p > 1 ? p / 100 : p; console.log(`[mrpack] [重合并] NeoForge进度: ${(np*100).toFixed(1)}% ${msg || ''}`); progress('loader-install', msg || '正在安装NeoForge...', 13 + np * 2); });
+                        else if (fabricVer) ir = await installFabric(mcVersion, fabricVer, (p, msg) => { const np = p > 1 ? p / 100 : p; console.log(`[mrpack] [重合并] Fabric进度: ${(np*100).toFixed(1)}% ${msg || ''}`); progress('loader-install', msg || '正在安装Fabric...', 13 + np * 2); });
+                        console.log(`[mrpack] [重合并] 加载器安装完成: success=${ir?.success}, 耗时=${Math.round((Date.now() - _remergeLdrStart) / 1000)}s`);
                         if (!ir || !ir.success) throw new Error((ir && ir.error) || `${loaderVersionId} 安装失败`);
                     } catch (e) {
                         console.error(`[mrpack] 加载器 ${loaderVersionId} 安装失败:`, e.stack || e.message);
@@ -17565,6 +17598,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             } catch (e) {
                 console.warn(`[mrpack] 删除加载器文件夹失败: ${e.message}`);
             }
+            console.log(`[mrpack] <<< [重合并] 完成, 耗时=${Math.round((Date.now() - _remergeStartTime) / 1000)}s`);
         } else if (!loaderVersionId) {
             console.log(`[mrpack] 整合包未指定加载器，跳过加载器校验`);
         } else {
@@ -17629,10 +17663,13 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     }
 
     try {
+    const _extractStartTime = Date.now();
+    console.log(`[mrpack] >>> [步骤4/5] 解压覆盖文件 (${new Date().toLocaleTimeString()})`);
     progress('extract', '解压覆盖文件...', 17, [], '');
     const entries = zip.getEntries();
     const overrideFiles = [];
     let extractYieldCounter = 0;
+    let extractCount = 0;
     for (const entry of entries) {
         if (entry.isDirectory) continue;
         const entryName = entry.entryName;
@@ -17663,10 +17700,11 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                     if (attempt < 5) await new Promise(r => setTimeout(r, (attempt - 1) * 2000));
                 }
             }
-            if (extractOk) overrideFiles.push({ name: relPath, status: 'completed', progress: 100 });
+            if (extractOk) { overrideFiles.push({ name: relPath, status: 'completed', progress: 100 }); extractCount++; }
             if (++extractYieldCounter % 50 === 0) await yieldToEventLoop();
         }
     }
+    console.log(`[mrpack] <<< [步骤4/5] 解压完成: ${extractCount} 个文件, 耗时=${Math.round((Date.now() - _extractStartTime) / 1000)}s`);
 
     try {
         const vsPath = path.join(versionDir, 'version-settings.json');
@@ -17705,6 +17743,8 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
 
     progress('mods', `下载 Mod 文件 (共 ${filesList.length} 个)...`, 25, [...overrideFiles, ...modFiles], '');
 
+    const _modsStartTime = Date.now();
+    console.log(`[mrpack] >>> [步骤5/5] 模组下载: 共 ${filesList.length} 个, 并发=${PARALLEL_MODS} (${new Date().toLocaleTimeString()})`);
     let okCount = 0, failCount = 0;
     let inFlight = 0;
     const PARALLEL_MODS = Math.min(parseInt(settings.maxThreads, 10) || 64, 64);
@@ -18022,7 +18062,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     try { _modAgent.destroy(); } catch (_) {}
     DownloadManager.connectionLimit = _prevConnLimit;
     if (abortSignal && abortSignal.aborted) throw new Error('下载已取消');
-    console.log(`[mrpack] Mod下载完成: ${okCount}成功 ${failCount}失败 (共${filesList.length}个, 并行=${Math.min(PARALLEL_MODS, filesList.length)})`);
+    console.log(`[mrpack] <<< [步骤5/5] 模组下载完成: ${okCount}成功 ${failCount}失败 (共${filesList.length}个, 并行=${Math.min(PARALLEL_MODS, filesList.length)}, 耗时=${Math.round((Date.now() - _modsStartTime) / 1000)}s)`);
     if (failCount > 0) {
         const failedNames = modFiles.filter(m => m.status === 'failed').map(m => m.name).join(', ');
         console.warn(`[mrpack] 失败的模组: ${failedNames}`);
