@@ -1139,31 +1139,37 @@ function dismissSupportModal() {
 }
 
 var ANNOUNCEMENT_CONTENT = {
-    version: '1.3.2',
-    title: 'VersePC v1.3.2 测试版公告',
+    version: '1.0.1',
+    title: 'VersePC v1.0.1 预览版公告',
     body: `
         <div class="announcement-section">
-            <p>各位小伙伴们，这次更新修复了 NeoForge 安装流程和外部版本启动的问题，请更新测试！</p>
+            <p style="font-size:16px;line-height:1.8;">亲爱的小伙伴们，VersePC 启动器正式开放<strong>预览版</strong>啦！</p>
+            <p style="color:#e67e22;font-weight:bold;font-size:15px;margin-top:12px;">预览版可能存在较多 Bug，如果你比较在意稳定性，建议等待八月份发布的正式稳定版。</p>
         </div>
 
         <div class="announcement-section">
-            <p style="color:#e74c3c;font-weight:bold;font-size:15px;">⚠️ 导入整合包功能暂时无法使用，请谅解！</p>
-        </div>
-
-        <div class="announcement-section">
-            <h4>更新内容</h4>
-
-            <h5>Bug 修复</h5>
+            <h4>功能介绍</h4>
             <ul>
-                <li>修复皮肤查看器一直显示"加载中"无法显示 3D 模型</li>
-                <li>修复 NeoForge 版本被误判为缺少 Forge 文件</li>
-                <li>修复 NeoForge 核心 JAR 文件名检测错误（缺少 -universal 后缀）</li>
-                <li>修复 Forge 26.x 启动时 SRG/extra 文件版本不匹配误报</li>
-                <li>修复 NeoForge 安装时核心 jar 和 patched jar 缺失未自动补全</li>
-                <li>修复外部版本（如 HMCL）首次启动后被误判为"错误版本"</li>
-                <li>NeoForge 核心库缺失时启动自动补下载</li>
-                <li>NeoForge 安装完成后自动校验核心 jar 和 patched jar，缺失则补下载</li>
+                <li><strong>版本管理</strong> — 一键下载和管理多个 Minecraft 版本，支持原版、Forge、Fabric、NeoForge 等主流加载器</li>
+                <li><strong>资源整合</strong> — 内置模组、整合包、资源包、数据包、光影下载，轻松打造你的专属游戏体验</li>
+                <li><strong>联机功能</strong> — 支持局域网联机和端口映射，和朋友一起畅玩</li>
+                <li><strong>账户管理</strong> — 支持微软正版登录和离线模式</li>
+                <li><strong>Java 管理</strong> — 自动检测和管理 Java 环境，告别版本不兼容的烦恼</li>
+                <li><strong>工具箱</strong> — 皮肤查看、游戏修复等实用工具</li>
+                <li><strong>控制台</strong> — 实时查看游戏日志，方便排查问题</li>
             </ul>
+        </div>
+
+        <div class="announcement-section">
+            <h4>实验性功能</h4>
+            <p>实验性功能（AI 助手等）目前需要<strong>赞助后获取测试版</strong>才能解锁使用。</p>
+            <p>如果你对实验性功能感兴趣，欢迎前往 <a href="javascript:void(0)" onclick="window.electronAPI?.openExternal('https://afdian.com/a/versejava')" style="color:#9b59b6;font-weight:bold;">爱发电</a> 支持我们的发展</p>
+        </div>
+
+        <div class="announcement-section">
+            <h4>Bug 反馈</h4>
+            <p>如果你在使用过程中遇到任何问题，欢迎加入我们的腾讯频道反馈：</p>
+            <p style="font-size:15px;font-weight:bold;color:#4a9eff;margin-top:8px;">腾讯频道：verselauncher1</p>
         </div>
 
         <div class="announcement-footer">
@@ -2664,6 +2670,33 @@ async function navigateToPage(pageName) {
         const isAIEnabled = window.electronAPI?.isAIEnabled && window.electronAPI.isAIEnabled();
         const placeholder = document.getElementById('explore-placeholder');
         const chatContainer = document.getElementById('explore-chat-container');
+        
+        if (!isAIEnabled) {
+            if (placeholder) {
+                placeholder.style.display = 'block';
+                placeholder.innerHTML = `
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:40px;text-align:center;">
+                        <h2 style="color:var(--text-primary);margin:0 0 12px;font-size:24px;font-weight:600;">功能未开放</h2>
+                        <p style="color:var(--text-secondary);margin:0 0 8px;font-size:15px;line-height:1.6;max-width:400px;">
+                            此功能需要赞助后才能使用
+                        </p>
+                        <p style="color:var(--text-secondary);margin:0 0 32px;font-size:14px;line-height:1.6;max-width:400px;">
+                            感谢你的支持，赞助后即可解锁全部实验性功能
+                        </p>
+                        <button onclick="window.electronAPI?.openExternal('https://afdian.com/a/versejava')" style="display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:linear-gradient(135deg,#9b59b6 0%,#8e44ad 100%);color:white;text-decoration:none;border-radius:12px;font-size:16px;font-weight:600;transition:all 0.3s ease;box-shadow:0 4px 15px rgba(155,89,182,0.3);border:none;cursor:pointer;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(155,89,182,0.4)'" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(155,89,182,0.3)'">
+                            前往赞助
+                        </button>
+                        <p style="color:var(--text-tertiary);margin:24px 0 0;font-size:12px;">
+                            赞助后联系开发者获取激活码
+                        </p>
+                    </div>
+                `;
+            }
+            if (chatContainer) chatContainer.style.display = 'none';
+            target.classList.add('active');
+            target.scrollTop = 0;
+            return;
+        }
         
         let isActivated = false;
         try {
@@ -12335,6 +12368,8 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
+        const aiOn = window.electronAPI?.isAIEnabled && window.electronAPI.isAIEnabled();
+        if (!aiOn) return;
         if (typeof AIChat !== 'undefined' && AIChat.toggleTerminal) {
             AIChat.toggleTerminal();
         }

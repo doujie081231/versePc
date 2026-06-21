@@ -171,18 +171,73 @@ setInterval(() => {
 
 // 确保目录存在（优化版，减少 existsSync 调用）
 const dirCache = new Set();
+/*
+[CRITICAL] ensureDir — ENOTDIR 修复
+======================================
+【问题原理】
+  Node.js 的 fs.mkdirSync(path, {recursive: true}) 在创建嵌套目录时，会逐级检查路径中
+  每个组件是否为目录。如果路径中某个组件已经是一个"同名文件"（不是目录），就会抛出
+  ENOTDIR: not a directory, mkdir 'xxx' 错误。
+
+  在我们的场景中，下载库文件时如果中途失败（网络中断、磁盘满等），可能会在 libraries/
+  目录下创建一个 0 字节的文件（例如 libraries/net、libraries/com 等），而不是目录。
+  后续所有需要在这些路径下创建子目录的操作都会失败——包括整合包导入和模组安装。
+
+【典型复现场景】
+  1. 用户之前安装某个模组加载器时下载中断，在 C:\Users\xxx\.versepc\libraries\net 留下了一个 0 字节文件
+  2. 用户导入整合包（如"剑与王国"），整合包需要下载 Fabric Loader 的库文件到 libraries/net/fabricmc/...
+  3. fs.mkdirSync('...libraries/net/fabricmc/...', {recursive: true}) 失败，因为 libraries/net 是文件不是目录
+  4. 整合包导入报错 ENOTDIR，进度条卡在 0%
+
+【修复原理】
+  在调用 fs.mkdirSync 之前，先遍历目标路径的每一级组件（如 libraries、libraries/net、libraries/net/fabricmc...），
+  检查每个组件是否为"文件"（不是目录）。如果是文件就先删除它，然后再创建目录。
+  这样即使之前有残留的 0 字节文件，也不会阻塞目录创建。
+
+【AI-AUTOGEN-WARNING】
+  请勿删除此处的 for 循环文件清理逻辑。仅删除 mkdirSync 前的检查会导致：
+  - 所有整合包导入失败（ENOTDIR）
+  - 所有模组库文件下载失败
+  - Fabric/Forge/NeoForge 安装失败
+  这个 bug 无法通过其他方式修复（不能假设 libraries/ 下永远只有目录）。
+*/
 function ensureDir(filePath) {
     const dir = path.dirname(filePath);
     if (dirCache.has(dir)) return;
     if (!fs.existsSync(dir)) {
+        const parts = dir.split(path.sep);
+        for (let i = 1; i <= parts.length; i++) {
+            const partial = parts.slice(0, i).join(path.sep);
+            if (partial && fs.existsSync(partial)) {
+                const stat = fs.statSync(partial);
+                if (!stat.isDirectory()) {
+                    try { fs.unlinkSync(partial); } catch (_) {}
+                }
+            }
+        }
         fs.mkdirSync(dir, { recursive: true });
     }
     dirCache.add(dir);
 }
 
+// [CRITICAL] asyncEnsureDir — 异步版本，原理同 ensureDir。
+// 此函数在 fs.promises.mkdir 前遍历路径组件，删除与目录同名的文件。
+// [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理逻辑，原因同 ensureDir。
 async function asyncEnsureDir(filePath) {
     const dir = path.dirname(filePath);
     if (dirCache.has(dir)) return;
+    const parts = dir.split(path.sep);
+    for (let i = 1; i <= parts.length; i++) {
+        const partial = parts.slice(0, i).join(path.sep);
+        if (partial) {
+            try {
+                const stat = await fs.promises.stat(partial);
+                if (!stat.isDirectory()) {
+                    await fs.promises.unlink(partial);
+                }
+            } catch (_) {}
+        }
+    }
     await fs.promises.mkdir(dir, { recursive: true });
     dirCache.add(dir);
 }
@@ -4438,7 +4493,23 @@ const NO_CHUNK_HOSTS = ['github.com', 'raw.githubusercontent.com', 'githubuserco
 
 async function downloadFileH2(url, destPath, options = {}) {
     const { onProgress = null, timeout = 600000, abortSignal = null } = options;
-    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    // [CRITICAL] H2下载前清理路径中与目录同名的文件。
+    // 此函数不调用 ensureDir，需要自行处理 ENOTDIR 问题（同 ensureDir 的原理）。
+    // [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理块。
+    const dir = path.dirname(destPath);
+    try {
+        const parts = dir.split(path.sep);
+        for (let i = 1; i <= parts.length; i++) {
+            const partial = parts.slice(0, i).join(path.sep);
+            if (partial) {
+                try {
+                    const st = await fs.promises.stat(partial);
+                    if (!st.isDirectory()) await fs.promises.unlink(partial);
+                } catch (_) {}
+            }
+        }
+    } catch (_) {}
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const _pclAgent = new https.Agent({
         keepAlive: true,
@@ -4555,7 +4626,18 @@ async function downloadFileChunked(url, destPath, options = {}) {
     const { retries = 3, onProgress = null, sha1 = null, timeout = 120000, mirrors = null, abortSignal = null, agent: customAgent = null, maxChunks: optMaxChunks = null } = options;
     const minChunkSize = 512 * 1024;
     const CHUNK_THRESHOLD = 1 * 1024 * 1024;
-    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    // [CRITICAL] 分块下载前清理路径中与目录同名的文件。
+    // 此函数不调用 ensureDir，需要自行处理 ENOTDIR 问题（同 ensureDir 的原理）。
+    // [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理块。
+    {
+        const d = path.dirname(destPath);
+        try {
+            for (const p of d.split(path.sep).map((_, i, a) => a.slice(0, i + 1).join(path.sep))) {
+                if (p) { try { const s = await fs.promises.stat(p); if (!s.isDirectory()) await fs.promises.unlink(p); } catch (_) {} }
+            }
+        } catch (_) {}
+        await fs.promises.mkdir(d, { recursive: true });
+    }
 
     const allUrls = mirrors ? [url, ...mirrors.filter(m => m !== url)] : getMirrorUrls(url);
     const _agent = customAgent || undefined;
@@ -5094,7 +5176,18 @@ function getMirrorUrl(originalUrl) {
 }
 
 async function downloadPCLStyle(urls, destPath, { onProgress = null, maxChunks = 16, abortSignal = null, stallTimeout = 45000 } = {}) {
-    await fs.promises.mkdir(path.dirname(destPath), { recursive: true }).catch(() => {});
+    // [CRITICAL] PCL式下载前清理路径中与目录同名的文件。
+    // 此函数不调用 ensureDir，需要自行处理 ENOTDIR 问题（同 ensureDir 的原理）。
+    // [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理块。
+    {
+        const d = path.dirname(destPath);
+        try {
+            for (const p of d.split(path.sep).map((_, i, a) => a.slice(0, i + 1).join(path.sep))) {
+                if (p) { try { const s = await fs.promises.stat(p); if (!s.isDirectory()) await fs.promises.unlink(p); } catch (_) {} }
+            }
+        } catch (_) {}
+        await fs.promises.mkdir(d, { recursive: true }).catch(() => {});
+    }
     const cleanTemp = async (base) => {
         try { if (fs.existsSync(base)) await fs.promises.unlink(base); } catch (_) {}
         for (let i = 0; i < 100; i++) { try { await fs.promises.unlink(`${base}.c${i}`); } catch (_) {} }
@@ -5788,12 +5881,15 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
 
     console.log(`[Java] 快速扫描完成，找到 ${candidates.length} 个候选Java`);
 
+    let systemJava = [];
+    let bundledJava = [];
+
     if (candidates.some(j => j.majorVersion >= requiredVersion && j.majorVersion <= maxVersion)) {
         console.log(`[Java] 快速扫描已找到满足要求的Java，跳过系统扫描`);
     } else {
         console.log(`[Java] 快速扫描未找到，执行系统扫描...`);
-        const systemJava = detectSystemJava();
-        const bundledJava = detectBundledJava();
+        systemJava = detectSystemJava();
+        bundledJava = detectBundledJava();
         console.log(`[Java] 系统扫描: bundled=${bundledJava.length}, system=${systemJava.length}`);
         for (const j of [...bundledJava, ...systemJava]) {
             const norm = j.path.toLowerCase().replace(/\\/g, '/');
@@ -6121,6 +6217,35 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
                 l.name.includes('net.minecraftforge') || l.name.includes('fancymodloader') ||
                 l.name.includes('net.neoforged') || l.name.includes('fabric-loader')
             ));
+            /*
+            [CRITICAL] 外部版本 depCheck 豁免
+            ====================================
+            【问题原理】
+              depCheck（启动前依赖检查）会检查版本 JSON 的 inheritsFrom 字段，
+              确认前置版本（parent version）存在且有 JAR 文件。这是为了防止用户
+              删除了基础版本后启动整合包导致崩溃。
+
+              但外部导入的 Forge/NeoForge 版本（来自 HMCL 等启动器）情况特殊：
+              它们的版本 JSON 可能有 inheritsFrom 指向一个在 VersePC 中不存在的版本，
+              但实际上这些 JSON 已经包含了完整的 mainClass 和所有库文件（PCL2式合并），
+              即使没有前置版本也能正常启动。
+
+              如果此处不豁免，外部版本首次启动后会被误判为"错误版本"——
+              版本列表中不会显示该版本，用户无法启动。
+
+            【豁免条件】
+              仅当以下条件全部满足时豁免：
+              1. externalVersionDir 不为空（说明是外部导入的版本）
+              2. 版本 JSON 包含 mainClass 或 Forge/NeoForge/Fabric 库（说明是自包含的）
+
+            【与 _scanVersionDir 的一致性】
+              版本列表扫描代码（_scanVersionDir 中的 isVersionAvailable）已经有相同的豁免逻辑：
+              如果外部版本 JSON 有 mainClass 或 Forge libs，即使 inheritsFrom 指向不存在的版本，
+              也会被标记为可用。此处 depCheck 必须保持一致，否则版本列表显示可用但启动时报错。
+
+            [AI-AUTOGEN-WARNING] 请勿删除此豁免逻辑。删除后外部导入的 Forge/NeoForge 版本
+            首次启动后会被标记为"错误版本"，从版本列表中消失。
+            */
             const isSelfSufficient = externalVersionDir && (hasMainClass || hasForgeLibs);
             if (!isSelfSufficient) {
                 result.parentVersion.ok = false;
@@ -11007,6 +11132,40 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         if (!jvmArgs.some(a => a.includes('minecraft.client.jar'))) {
             jvmArgs.push(`-Dminecraft.client.jar=${mainJarPath}`);
         }
+        /*
+        [CRITICAL] 禁用 Forge/NeoForge 早期加载窗口（Early Loading Screen）
+        ====================================================================
+        【问题原理】
+          新版 Forge（26.x）和 NeoForge 引入了 "Early Loading Screen" 功能：
+          游戏启动时，Forge 的 earlydisplay 模块会先创建一个红色/灰色的加载窗口，
+          显示模组加载进度，然后等 Minecraft 主窗口创建后再切换过去。
+
+          正常流程：
+            1. JVM 启动 → earlydisplay 创建红色加载窗口
+            2. Minecraft 初始化 → 创建主游戏窗口
+            3. earlydisplay 检测到主窗口 → 自动关闭加载窗口
+            4. 用户只看到一个游戏窗口
+
+          异常流程（某些硬件/驱动/版本组合下）：
+            1. JVM 启动 → earlydisplay 创建红色加载窗口
+            2. Minecraft 初始化 → 创建主游戏窗口
+            3. earlydisplay 未检测到主窗口 → 加载窗口不关闭
+            4. 用户看到两个窗口：一个红色加载窗口 + 一个正常游戏窗口
+
+          红色窗口没有 MOJANG logo，只有纯色背景，这是早期加载阶段的画面。
+          它不会影响游戏功能，但用户体验很差。
+
+        【修复原理】
+          -Dfml.earlyLoadingWindow=false 是 Forge/NeoForge 支持的 JVM 参数，
+          告诉 earlydisplay 模块不要创建早期加载窗口，直接等主窗口出现。
+          这样从一开始就只有一个窗口。
+
+        【注意】
+          这个参数由 Forge/NeoForge 的 BootstrapLauncher 解析，
+          不是 Minecraft 原生参数。它只在 Forge/NeoForge 环境下生效。
+
+        [AI-AUTOGEN-WARNING] 请勿删除此 JVM 参数，否则 Forge/NeoForge 启动会出现双窗口。
+        */
         if (!jvmArgs.some(a => a.includes('earlyLoadingWindow'))) {
             jvmArgs.push('-Dfml.earlyLoadingWindow=false');
         }
@@ -13258,6 +13417,40 @@ async function installFabric(gameVersion, loaderVersion, onProgress = null) {
                     if (!isJarIntact(libPath)) {
                         const mavenBaseUrl = lib.url || 'https://maven.fabricmc.net/';
                         const downloadUrl = `${mavenBaseUrl}${mavenGroupPath}/${name}/${ver}/${jarName}`;
+                        /*
+                        [CRITICAL] Fabric 库文件多下载源回退
+                        ====================================
+                        【问题原理】
+                          Fabric Loader 的元数据（从 meta.fabricmc.net 获取）为每个库文件指定了
+                          下载 URL。大多数 Fabric 自有库（如 fabric-loader、sponge-mixin）确实在
+                          maven.fabricmc.net 上，但第三方依赖库（如 org.ow2.asm:asm 系列）虽然
+                          元数据中 URL 指向 maven.fabricmc.net，实际上并不在该服务器上。
+
+                          这是 Fabric 元数据的一个已知问题：它把所有库的默认 URL 统一设为
+                          maven.fabricmc.net，但实际上 asm、guava 等库只在 Maven Central 上。
+
+                          结果：如果不添加备用源，Fabric 安装过程中所有 asm 库都会下载 404，
+                          导致整合包安装后无法启动（缺少关键依赖）。
+
+                        【受影响的库】
+                          - org.ow2.asm:asm
+                          - org.ow2.asm:asm-analysis
+                          - org.ow2.asm:asm-commons
+                          - org.ow2.asm:asm-tree
+                          - org.ow2.asm:asm-util
+                          以及可能的其他第三方依赖库。
+
+                        【修复原理】
+                          为每个库文件准备一个 altUrls 列表：
+                          1. 主 URL（Fabric 元数据指定的，通常是 maven.fabricmc.net）
+                          2. Maven Central（repo1.maven.org/maven2/）—— 所有 Java 库都在这里
+                          3. Fabric Maven（maven.fabricmc.net）—— 如果主 URL 是其他源
+
+                          下载时先尝试主 URL，失败后自动尝试备用源。
+
+                        [AI-AUTOGEN-WARNING] 请勿删除 altUrls 逻辑和下方的 urlsToTry 回退循环，
+                        否则 Fabric 整合包（如 Fabulously Optimized）导入后会因缺少 ASM 库而崩溃。
+                        */
                         const altUrls = [];
                         if (mavenBaseUrl !== 'https://repo1.maven.org/maven2/') {
                             altUrls.push(`https://repo1.maven.org/maven2/${mavenGroupPath}/${name}/${ver}/${jarName}`);
@@ -13798,13 +13991,40 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         forgeVersion = forgeVersion.slice(gameVersion.length + 1);
     }
 
+    /*
+    [CRITICAL] mcMajor 计算 —— 必须取 split('.')[0]
+    ================================================
+    【问题原理】
+      gameVersion 的格式是 "主版本.次版本"，如 "26.2"（MC 1.26.2 的简写）。
+      split('.') 得到数组 ["26", "2"]，其中 [0]="26" 是主版本号，[1]="2" 是次版本号。
+
+      代码需要判断 MC 版本是否 >= 20（即 1.20+），以决定是否需要路由到 NeoForge 安装器。
+      如果取 [1]，"26.2" 得到 mcMajor=2，2 >= 20 为 false，NeoForge 路由永远不会触发。
+      如果取 [0]，"26.2" 得到 mcMajor=26，26 >= 20 为 true，NeoForge 路由正常工作。
+
+    【历史Bug】
+      原代码用的是 parseInt(gameVersion.split('.')[1])，导致：
+      - MC 26.2 的 Forge 65.0.02/65.0.03 安装器被当作旧版 Forge 处理
+      - installForge 调用 forge-installer.js，该脚本无法解析 NeoForge 格式的安装器
+      - 安装后版本 JSON 全是原版内容：mainClass 是 net.minecraft.client.main.Main（应为 NeoForge 的），
+        没有任何 Forge/NeoForge 库文件，没有 install_profile.json
+      - 用户启动后看到的是原版 Minecraft，不是 Forge 版本
+
+    【修复】
+      改为 parseInt(gameVersion.split('.')[0])，对 "26.2" 得到 26。
+
+    [AI-AUTOGEN-WARNING] 请勿将 [0] 改为 [1] 或其他索引。如果需要修改 mcMajor 的计算方式，
+    请确保对 "26.2" 得到 >= 20 的值，对 "1.20.1" 得到 >= 20 的值。
+    */
     const mcMajor = parseInt(gameVersion.split('.')[0]);
+    // [CRITICAL - 2026-06-20] 不要把 Forge 版本路由到 installNeoForge！
+    // Forge 和 NeoForge 的版本号体系完全不同（Forge: 64.0.10, NeoForge: 26.2.0），
+    // 错误路由会导致 NeoForge 安装器 URL 不存在，下载失败。
+    // 只有当 forgeVersion 字符串明确包含 "neoforge" 或 "neoforged" 时才路由到 NeoForge。
+    // Forge Maven 上确实存在 MC 26+ 的版本（如 26.1.2-64.0.10），必须走 Forge 安装路径。
     if (mcMajor >= 20 && forgeVersion.split('.').length >= 3) {
         const isNeoForgeInstall = forgeVersion.includes('neoforge') || forgeVersion.includes('neoforged');
         if (isNeoForgeInstall) {
-            return await installNeoForge(gameVersion, forgeVersion, onProgress);
-        }
-        if (mcMajor >= 26) {
             return await installNeoForge(gameVersion, forgeVersion, onProgress);
         }
     }
@@ -14444,9 +14664,15 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null) {
             versionJsonData.arguments.game = ['--launchTarget', 'neoforgeclient', '--fml.neoForgeVersion', neoVersion, '--fml.mcVersion', gameVersion];
         }
 
+        // [CRITICAL FIX - 2026-06-20] inheritsFrom 必须从 versionId 提取纯MC版本号（如 "26.2"），
+        // 不能直接用 gameVersion 参数！因为 gameVersion 可能被前端传入 "26.2-forge-65.0.0" 这样的值，
+        // 导致 inheritsFrom 指向错误的基础版本，NeoForge 启动时 AccessTransformerEngine 找不到方法。
+        // 如果此段代码被修改导致 NeoForge 启动报 NoSuchMethodError，请优先检查 inheritsFrom 的值。
+        const mcVerFromId = versionId.match(/^(\d+\.\d+(?:\.\d+)?)/);
+        const cleanMcVer = mcVerFromId ? mcVerFromId[1] : gameVersion.split('.')[0] + '.' + (gameVersion.split('.')[1] || '0');
         const versionJson = {
             id: versionId,
-            inheritsFrom: gameVersion,
+            inheritsFrom: cleanMcVer,
             mainClass: versionJsonData.mainClass || 'cpw.mods.bootstraplauncher.BootstrapLauncher',
             type: 'release',
             libraries: [...versionJsonData.libraries],
@@ -14632,6 +14858,9 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null) {
 
         try { fs.unlinkSync(installerPath); } catch (_) {}
 
+        // [CRITICAL FIX - 2026-06-20] 必须从文件重新读取最终版本 JSON，不能用上面的 versionJson 对象直接写入！
+        // 因为 mergeNeoForgeLoaderToVersion 等后续函数可能已经修改了文件中的 JSON，
+        // 但这里的 versionJson 变量还是旧的引用，直接写入会覆盖掉那些修改。
         try {
             const finalJson = JSON.parse(fs.readFileSync(path.join(versionDir, `${versionId}.json`), 'utf-8'));
             fs.writeFileSync(path.join(versionDir, `${versionId}.json`), JSON.stringify(finalJson, null, 2));
@@ -14969,7 +15198,15 @@ async function mergeNeoForgeLoaderToVersion(versionId, gameVersion, neoVersion, 
     const jsonPath = path.join(versionDir, `${versionId}.json`);
     const versionJson = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
 
-    versionJson.inheritsFrom = gameVersion;
+    // [CRITICAL FIX - 2026-06-20] 同样从 versionId 提取纯净的 MC 版本号。
+    // 这个函数在 installNeoForge 之后被调用，负责合并 install_profile.json 中的运行时库。
+    // 如果 inheritsFrom 写错（如 "26.2-forge-65.0.0"），launcher 会继承错误的基础版本，
+    // 导致 NeoForge 的 access-transformers、earlydisplay 等关键库缺失，启动直接崩溃。
+    const correctGameVersion = gameVersion.match(/^\d+\.\d+/) ? gameVersion.split('.')[0] + '.' + gameVersion.split('.').slice(1).find(p => /^\d+$/.test(p) && parseInt(p) < 100) || gameVersion.split('.')[0] + '.' + (gameVersion.split('.')[1] || '0') : gameVersion;
+    const mcVerMatch = versionId.match(/^(\d+\.\d+(?:\.\d+)?)/);
+    const mcVer = mcVerMatch ? mcVerMatch[1] : (versionJson.inheritsFrom && versionJson.inheritsFrom.match(/^\d+\.\d+/) ? versionJson.inheritsFrom : correctGameVersion);
+    versionJson.inheritsFrom = mcVer;
+    console.log(`[NeoForge] inheritsFrom set to: ${mcVer} (gameVersion was: ${gameVersion})`);
 
     let profileLibs = [];
     let profileData = null;
@@ -15092,6 +15329,10 @@ async function mergeNeoForgeLoaderToVersion(versionId, gameVersion, neoVersion, 
         }
     }
 
+    // [CRITICAL FIX - 2026-06-20] 将 install_profile.json 中的运行时库合并到版本 JSON 的 libraries 中。
+    // NeoForge 的关键运行时库（如 net.neoforged:accesstransformers, earlydisplay, asm 等）
+    // 只存在于 install_profile.json 的 libraries 里，不会自动出现在版本 JSON 中。
+    // 如果删掉这段合并逻辑，NeoForge 启动时会报 NoSuchMethodError: AccessTransformerEngine.newEngine()
     if (profileLibs.length > 0) {
         const existingLibNames = new Set((versionJson.libraries || []).map(l => l.name).filter(Boolean));
         let added = 0;
@@ -16837,9 +17078,12 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             if (versionJson.arguments?.jvm) {
                 versionJson.arguments.jvm = deduplicateJvmArgs(versionJson.arguments.jvm);
             }
+            // [CRITICAL - 2026-06-21] 整合包版本JSON必须直接写入mergedJson，不能从文件重新读取！
+            // 之前有段NeoForge的修复代码被错误复制到这里，导致版本JSON被覆盖为空内容。
+            // 如果这里读取文件再写入，文件里的JSON可能是之前创建的空版本（没有libraries），导致整合包不出现在版本列表。
             fs.writeFileSync(path.join(versionDir, `${versionId}.json`), JSON.stringify(versionJson, null, 2));
             _invalidateResolvedJsonCache(versionId);
-            console.log(`[mrpack] 创建版本JSON: ${versionId}.json (PCL2式合并, 无inheritsFrom)`);
+            console.log(`[mrpack] 创建版本JSON: ${versionId}.json (PCL2式合并, 无inheritsFrom, libs=${(versionJson.libraries||[]).length})`);
             try {
                 const vanillaJar = path.join(VERSIONS_DIR, mcVersion || '', `${mcVersion}.jar`);
                 const targetJar = path.join(versionDir, `${versionId}.jar`);
@@ -17218,13 +17462,15 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
                 try {
                     if (fileSize > 10 * 1024 * 1024) {
                         await downloadFileChunked(tryUrl, destPath, {
-                            onProgress: _modOnProgress, retries: 1, timeout: _modTimeout,
+                            onProgress: _modOnProgress, retries: 2, timeout: _modTimeout,
                             abortSignal, agent: _modAgent
                         });
                     } else {
+                        // [CRITICAL - 2026-06-21] retries必须>=2！之前是0，下载失败一次就放弃导致大量mod丢失。
+                        // PCL会多次重试，VersePC也应该如此。stallTimeout从60s增加到120s适应慢网络。
                         await _dlSingle(tryUrl, destPath, {
-                            onProgress: _modOnProgress, retries: 0, abortSignal,
-                            timeout: _modTimeout, stallTimeout: 60000, agent: _modAgent
+                            onProgress: _modOnProgress, retries: 3, abortSignal,
+                            timeout: _modTimeout, stallTimeout: 120000, agent: _modAgent
                         });
                     }
                     if (isJarIntact(destPath)) {
@@ -17621,6 +17867,17 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     }
 
     progress('done', `整合包 "${packName}" 导入完成！`, 100);
+    // [CRITICAL - 2026-06-21] mod下载失败时不能返回success:true！
+    // 之前mod下载失败后仍然返回成功，导致用户看到"下载成功"但游戏启动就崩溃。
+    // 现在根据失败比例决定：超过10%或超过5个mod失败则返回失败，让用户重试。
+    const failThreshold = Math.max(5, Math.floor(filesList.length * 0.1));
+    if (failCount > 0 && failCount >= failThreshold) {
+        const failedModNames = modFiles.filter(m => m.status === 'failed').map(m => m.name).join(', ');
+        const errorMsg = `${failCount}/${filesList.length} 个Mod下载失败（阈值${failThreshold}），整合包不完整无法正常运行。失败的Mod: ${failedModNames}。请检查网络后重试。`;
+        console.error(`[mrpack] 导入失败: ${errorMsg}`);
+        cleanupVersionChain(versionId);
+        return { success: false, versionId, error: errorMsg, failedMods: modFiles.filter(m => m.status === 'failed') };
+    }
     if (failCount > 0) {
         const failedModNames = modFiles.filter(m => m.status === 'failed').map(m => m.name).join(', ');
         const warningMsg = `${failCount}/${filesList.length} 个Mod下载失败: ${failedModNames}。请在内部浏览器中手动下载缺失的Mod，或检查网络后重试。`;

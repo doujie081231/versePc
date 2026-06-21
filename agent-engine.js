@@ -3135,14 +3135,32 @@ Take action now. Do not explain your limitations.`
             }
         }
 
-        if (!this._activePlan && round < 4) {
+        {
             let guidance = '';
             if (successCount > 0 && errorCount === 0 && deniedCount === 0) {
-                guidance = 'All tools executed successfully. Determine task progress: if there are remaining steps → continue immediately, do not stop. If task is complete → call attempt_completion.';
+                guidance = 'All tools executed successfully. You MUST now present your findings, progress, or plan to the user in your next text response. Tell the user what you discovered and what the next steps are. Do NOT call attempt_completion yet — wait for user feedback. If you have enough information to proceed with the full task, describe what you will do and ask the user to confirm.';
             } else if (errorCount > 0) {
                 guidance = 'Some tools failed. Analyze the error and try a different approach. Do not repeat the same failed action.';
             }
             if (guidance) conversation.push({ role: 'system', content: guidance });
+        }
+
+        const askUserCalls = allResults.filter(r => r.name === 'ask_user');
+        if (askUserCalls.length > 0) {
+            for (const askResult of askUserCalls) {
+                try {
+                    const parsed = JSON.parse(askResult.result);
+                    const answer = (parsed.answer || '').toString().toLowerCase();
+                    const versionKeywords = ['版本', 'version', '1.16', '1.17', '1.18', '1.19', '1.20', '1.21', 'fabric', 'forge', 'neoforge', 'vanilla'];
+                    const isVersionRelated = versionKeywords.some(kw => answer.includes(kw));
+                    if (isVersionRelated) {
+                        conversation.push({
+                            role: 'system',
+                            content: 'DETECTED: You used ask_user to ask about version selection. This is WRONG. You MUST use select_version tool to show a visual version selection card instead. Never use ask_user for version or mod selection. Call select_version now.'
+                        });
+                    }
+                } catch (e) {}
+            }
         }
 
         // ask_user 收到用户回答后，强制模型给用户一个文本回复
@@ -3173,6 +3191,21 @@ Take action now. Do not explain your limitations.`
                 content: `用户已经回答了 ask_user 提问${askQuestion ? `（"${askQuestion}"）` : ''}，回答内容是："${userAnswer}"。你必须现在用一段简短的中文文本回应用户，然后继续执行原本的任务。`
             });
             this._noToolsNextRound = true;
+        }
+
+        const askUserVersionResult = allResults.find(r => {
+            if (r.name !== 'ask_user') return false;
+            try {
+                const args = JSON.parse(r.args || '{}');
+                const question = (args.question || '').toLowerCase();
+                return /版本|version|mod|模组|翻译|translate/i.test(question) && /\d+\.\d+|版本\s*\d|version\s*\d/i.test(question);
+            } catch (e) { return false; }
+        });
+        if (askUserVersionResult) {
+            conversation.push({
+                role: 'system',
+                content: 'You used ask_user to ask about version/mod selection, but you MUST use select_version tool instead to show a visual version selection card. Do NOT use ask_user for version selection. From now on, always use select_version when you need the user to pick a version.'
+            });
         }
 
         if (round >= 2 && this._repeatTextCount > 0) {

@@ -2701,16 +2701,27 @@ function showUpdateReadyDialog(info) {
         type: 'info',
         title: '更新已就绪',
         message: 'VersePC v' + info.version + ' 已下载完成',
-        detail: '点击"立即安装"将重启应用并完成更新。也可以下次启动时自动安装。',
+        detail: '点击"立即安装"将关闭应用并启动安装程序。',
         buttons: ['下次再说', '立即安装'],
         defaultId: 1,
         cancelId: 0,
     }).then(({ response }) => {
         if (response === 1) {
-            shuttingDown = true;
-            getAutoUpdater().quitAndInstall(false, true);
+            runInstallerAndQuit();
         }
     }).catch(() => {});
+}
+
+function runInstallerAndQuit() {
+    if (!updateDownloadedPath || !fs.existsSync(updateDownloadedPath)) return;
+    shuttingDown = true;
+    const { spawn } = require('child_process');
+    spawn(updateDownloadedPath, ['/SILENT'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsVerbatimArguments: true,
+    }).unref();
+    app.quit();
 }
 
 function sendToUpdateUI(channel, data) {
@@ -2735,7 +2746,10 @@ function registerAIChatIPC() {
         try {
             const p = require('path');
             const fs = require('fs');
-            const cfgPath = p.join(__dirname, 'ai-enabled.json');
+            let cfgPath = p.join(__dirname, 'ai-enabled.json');
+            if (!fs.existsSync(cfgPath)) {
+                cfgPath = p.join(p.dirname(p.dirname(__dirname)), 'ai-enabled.json');
+            }
             if (fs.existsSync(cfgPath)) {
                 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
                 return cfg.enabled === true;
@@ -7547,8 +7561,7 @@ function registerUpdaterIPC() {
 
     ipcMain.handle('updater:install-update', async () => {
         if (updateDownloaded) {
-            shuttingDown = true;
-            getAutoUpdater().quitAndInstall(false, true);
+            runInstallerAndQuit();
             return { success: true };
         }
         return { success: false, error: '更新尚未下载完成' };

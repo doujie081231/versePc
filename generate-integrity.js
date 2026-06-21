@@ -42,6 +42,17 @@ function main() {
     const aiConfigPath = path.join(projectRoot, 'ai-enabled.json');
     fs.writeFileSync(aiConfigPath, JSON.stringify({ enabled: aiEnabled }));
     console.log(`AI config written to ai-enabled.json (enabled=${aiEnabled})`);
+
+    if (aiEnabled) {
+        const preloadPath = path.join(projectRoot, 'preload.cjs');
+        let preloadContent = fs.readFileSync(preloadPath, 'utf8');
+        preloadContent = preloadContent.replace(
+            /isAIEnabled:\s*\(\)\s*=>\s*\{[\s\S]*?return\s+(?:true|false);\s*\}/,
+            'isAIEnabled: () => { return true; }'
+        );
+        fs.writeFileSync(preloadPath, preloadContent);
+        console.log('Preload patched: isAIEnabled -> true');
+    }
 }
 
 main();

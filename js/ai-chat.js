@@ -2948,7 +2948,7 @@ const AIChat = {
                 const activeBtn = document.querySelector('.rc-mode-btn.rc-mode-btn-active');
                 const currentMode = activeBtn ? activeBtn.dataset.mode : 'plan';
                 if (currentMode === 'plan') {
-                    return `\n\n## Mode: Plan (只读探索模式)\n你当前处于 Plan 模式。在此模式下，你只能使用只读工具进行探索和分析，不能执行任何修改操作。\n允许的工具：read_file, grep_search, glob_search, web_search, web_fetch, web_search_general, get_versions, get_installed_mods, get_game_status, search_mods, browse_directory, select_version, get_game_log, diagnose_crash, get_system_info, explore_environment, build_index, semantic_search, index_stats, sequential_thinking, attempt_completion, ask_user, manage_core_memory, update_todo_list, view_history, validate_code, ckg, sub_agent_dispatch, search_translation_dict\n禁止的工具：write_file, edit_file, bash, execute_command, install_mod, toggle_mod, install_version, install_loader, launch_game, stop_game, manage_settings, translate_mod, install_modpack, agent, str_replace_based_edit_tool, json_edit_tool, download_cfpa_pack, extract_builtin_translations, download_modpack_translation, start_preview, manage_processes, undo_edit, add_download_task\n当用户请求修改操作时，提醒他们切换到 Agent 或 Developer 模式。\n输出结构化计划：目标、上下文、关键文件、约束、建议方案、验证计划、风险点。`;
+                    return `\n\n## Mode: Plan (只读探索模式)\n你当前处于 Plan 模式。在此模式下，你只能使用只读工具进行探索和分析，不能执行任何修改操作。\n允许的工具：read_file, grep_search, glob_search, web_search, web_fetch, web_search_general, get_versions, get_installed_mods, get_game_status, search_mods, browse_directory, select_version, get_game_log, diagnose_crash, get_system_info, explore_environment, build_index, semantic_search, index_stats, sequential_thinking, attempt_completion, ask_user, manage_core_memory, update_todo_list, view_history, validate_code, ckg, sub_agent_dispatch, search_translation_dict\n禁止的工具：write_file, edit_file, bash, execute_command, install_mod, toggle_mod, install_version, install_loader, launch_game, stop_game, manage_settings, translate_mod, install_modpack, agent, str_replace_based_edit_tool, json_edit_tool, download_cfpa_pack, extract_builtin_translations, download_modpack_translation, start_preview, manage_processes, undo_edit, add_download_task\n当用户请求修改操作时，提醒他们切换到 Agent 或 Developer 模式。\n输出结构化计划：目标、上下文、关键文件、约束、建议方案、验证计划、风险点。\n禁止在信息收集和计划阶段调用 attempt_completion 结束对话。完成分析后必须以文本向用户展示你的发现和计划，等待用户确认后再继续。\n\n**完成时机规则（Plan模式）**: 完成信息收集后，你必须以文本向用户展示分析结果和计划，等待用户确认后才可结束。绝对禁止在Plan模式下调用 attempt_completion 来静默结束对话。你的最后一次回复必须是向用户展示你的发现和下一步建议。`;
                 }
                 if (currentMode === 'agent') {
                     return `\n\n## Mode: Agent (标准工作模式)\n当前用户处于 Agent 模式。你可以访问 ~/.versepc/versions/ 以及用户已添加的外部版本文件夹。如果用户要求访问其他外部路径，提醒他们切换到 Developer 模式。`;
@@ -2959,7 +2959,7 @@ const AIChat = {
                 const activeBtn = document.querySelector('.rc-mode-btn.rc-mode-btn-active');
                 const currentMode = activeBtn ? activeBtn.dataset.mode : 'plan';
                 if (currentMode !== 'dev') return '';
-                return `\n\n## 模组开发工具 (开发者模式可用)\n- check_dev_environment: 检查开发环境（JDK/Gradle/MDK），在使用其他开发工具前应先调用\n- install_dev_tools: 安装缺失的JDK/Gradle/模板\n- init_mod_project: 初始化新模组项目(fabric/forge/neoforge)\n- build_mod: 用Gradle编译模组项目\n- create_datapack: 创建数据包（配方/战利品表/标签/进度）\n- create_resourcepack: 创建资源包（模型/纹理/语言文件）\n- mod_compile_and_install: 一键编译并安装到指定版本\n\n### 生成模组流程:\n1. 判断需求复杂度：简单需求（配方/战利品表/标签/进度）优先用数据包\n2. 数据包路径: create_datapack → 写入 ~/.versepc/versions/{版本ID}/datapacks/\n3. 完整模组: check_dev_environment → init_mod_project → 用 str_replace_based_edit_tool 编写代码 → build_mod → 安装\n4. 模组开发文档: https://fabricmc.net/wiki/ 或 https://docs.neoforged.net/`;
+                return `\n\n## 模组开发工具 (开发者模式可用)\n- check_dev_environment: 检查开发环境（JDK/Gradle/MDK），在使用其他开发工具前应先调用\n- install_dev_tools: 安装缺失的JDK/Gradle/模板\n- init_mod_project: 初始化新模组项目(fabric/forge/neoforge)\n- build_mod: 用Gradle编译模组项目\n- create_datapack: 创建数据包（配方/战利品表/标签/进度）\n- create_resourcepack: 创建资源包（模型/纹理/语言文件）\n- mod_compile_and_install: 一键编译并安装到指定版本\n\n### 生成模组流程:\n1. 判断需求复杂度：简单需求（配方/战利品表/标签/进度）优先用数据包\n2. 数据包路径: create_datapack → 写入 ~/.versepc/versions/{版本ID}/datapacks/\n3. 完整模组: check_dev_environment → init_mod_project → 用 str_replace_based_edit_tool 编写代码 → build_mod → 安装\n4. 模组开发文档: https://fabricmc.net/wiki/ 或 https://docs.neoforged.net/\n\n### 完成时机规则:\n- 禁止在制定计划后立即调用 attempt_completion 结束对话\n- 完成信息收集后，必须以文本向用户展示发现和下一步计划，等待用户反馈\n- 只有在用户明确确认，或所有操作已执行完毕并验证后，才可调用 attempt_completion\n\n### 版本选择规则:\n- 需要用户选择版本时，必须调用 select_version 工具弹出可视化版本选择卡片\n- 禁止使用 ask_user 列出版本名称让用户打字选择\n- select_version 返回后直接使用 selected 版本信息，不再二次询问`;
             })();
             const sysPrompt = `You are VersePC Coder, a coding agent specialized in Minecraft launcher development.
 ${_langRule}${_customPrompt}${_modeRule}${_devToolsRule}${this._goal && this._goal.status === 'active' ? `\n\n## Current Goal\n${this._goal.description}\n请围绕此目标展开工作。` : ''}${this._activeSkill ? `\n\n## Active Skill: ${this._activeSkill.name}\n${this._activeSkill.content}` : ''}
@@ -2988,8 +2988,9 @@ Analyze intent before acting:
 - Shaderpacks dir: ~/.versepc/versions/{id}/shaderpacks/ (版本隔离) or ~/.versepc/shaderpacks/
 - Always call get_versions(installedOnly:true) when working with versions
 - Use get_current_context to see current selected version
-- When user asks to install/change/select a version, use select_version tool to show a version selection card. The user will pick one from the card, then you continue with their choice.
+- When user asks to install/change/select a version, or when you need to know which version to operate on, use select_version tool to show a version selection card. The user will pick one from the card, then you continue with their choice.
 - NEVER assume which version the user wants. Always use select_version to let them choose.
+- **NEVER use ask_user to ask about version selection.** ask_user is ONLY for simple yes/no questions or brief clarifications. For ANY version/mod selection scenario, ALWAYS use select_version tool which shows a visual selection card.
 - **资源安装流程**: 当用户要求安装模组/光影包/资源包/材质包时，遵循以下步骤:
   1. 搜索资源 (search_mods 或 web_search)
   2. 调用 select_version 让用户选择目标版本（版本选择卡片是唯一的版本选择方式）
@@ -3032,11 +3033,12 @@ You MUST use update_todo_list for ANY task that involves tool calls (file ops, c
 ## Rules
 1. No tools for known info — answer directly.
 2. No file/command ops without explicit user request.
-3. Never say "I cannot" without trying 2+ approaches.
-4. Never end completion with a question.
-5. Skip pleasantries — get straight to the point.
-6. Use Markdown formatting.
-7. Use str_replace_based_edit_tool for precise code edits.
+3. **ask_user 禁止用于版本/模组选择**: 当需要用户选择版本或模组时，必须使用 select_version 工具。ask_user 仅用于简单的确认问题或简短澄清。
+4. Never say "I cannot" without trying 2+ approaches.
+5. Never end completion with a question.
+6. Skip pleasantries — get straight to the point.
+7. Use Markdown formatting.
+8. Use str_replace_based_edit_tool for precise code edits.
 
 ## File Operations
 - Verify content before modifying (str_replace view)
@@ -3049,10 +3051,11 @@ You MUST use update_todo_list for ANY task that involves tool calls (file ops, c
 - Unsafe requests → explain + suggest alternatives
 
 ## Completion
-Call attempt_completion when all operations are done and verified.
+Call attempt_completion ONLY when ALL of these conditions are met: (1) all planned operations are executed and verified, AND (2) you have already presented results/progress to the user in your text response, AND (3) the task has no remaining steps that need user input.
 - result field MUST contain a clear Chinese summary: what was done, current status, next steps
 - NEVER leave result empty — it IS the final reply shown to the user
-- NEVER call attempt_completion prematurely`;
+- NEVER call attempt_completion to end a conversation prematurely — instead, present your findings and ask the user what to do next
+- If you just created a plan or analyzed something, you MUST show the results to the user and wait for their feedback. Do NOT call attempt_completion at this point.`;
                 const rawMessages = [{ role: 'system', content: sysPrompt }, ...conv.messages.map(m => {
                     if (m.content && typeof m.content !== 'string') {
                         try { m = { ...m, content: JSON.stringify(m.content) }; } catch (e) { m = { ...m, content: String(m.content) }; }
@@ -5434,7 +5437,7 @@ Call attempt_completion when all operations are done and verified.
         for (const m of allModels) {
             const isCurrent = m.modelId === this.model;
             const modelIconSvg = m.providerKey ? this._getProviderSvgIcon(m.providerKey) : '';
-            modelsHtml += `<tr><td><div class="rc-model-name-cell"><div class="rc-model-icon ${m.providerKey||''}">${modelIconSvg}</div><div><div class="rc-model-name">${isCurrent?'<span class="rc-model-active-dot"></span>':''}${m.modelName||m.modelId}</div><div class="rc-model-id">${m.modelId}</div></div></div></td><td><span class="rc-provider-badge">${providerNames[m.providerKey]||m.providerKey||'-'}${m.free?'<span class="rc-free-badge">FREE</span>':''}</span></td><td>${isCurrent?'<span class="rc-model-in-use">使用中</span>':`<button class="rc-table-action" onclick="AIChat.selectModelFromTable('${m.modelId}')">使用</button> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>`}</td></tr>`;
+            modelsHtml += `<tr><td><div class="rc-model-name-cell"><div class="rc-model-icon ${m.providerKey||''}">${modelIconSvg}</div><div><div class="rc-model-name">${isCurrent?'<span class="rc-model-active-dot"></span>':''}${m.modelName||m.modelId}</div><div class="rc-model-id">${m.modelId}</div></div></div></td><td><span class="rc-provider-badge">${providerNames[m.providerKey]||m.providerKey||'-'}${m.free?'<span class="rc-free-badge">FREE</span>':''}</span></td><td>${isCurrent?`<span class="rc-model-in-use">使用中</span> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>`:`<button class="rc-table-action" onclick="AIChat.selectModelFromTable('${m.modelId}')">使用</button> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>`}</td></tr>`;
         }
         if (!allModels.length) modelsHtml = '<tr><td colspan="3" class="rc-model-table-empty">暂无模型，点击下方平台卡片添加</td></tr>';
 
@@ -6162,7 +6165,7 @@ Call attempt_completion when all operations are done and verified.
                     </div>
                 </td>
                 <td><span class="rc-provider-badge">${providerNames[m.providerKey] || m.providerKey || '-'}${m.free ? '<span class="rc-free-badge">FREE</span>' : ''}</span></td>
-                <td>${isCurrent ? '<span style="color:var(--ai-accent);font-size:11px;font-weight:600">使用中</span>' : `<button class="rc-table-action" onclick="AIChat.selectModelFromTable('${m.modelId}')">使用</button> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>`}</td>`;
+                <td>${isCurrent ? `<span style="color:var(--ai-accent);font-size:11px;font-weight:600">使用中</span> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>` : `<button class="rc-table-action" onclick="AIChat.selectModelFromTable('${m.modelId}')">使用</button> <button class="rc-table-action danger" onclick="AIChat.removeModelFromTable('${m.modelId}')">移除</button>`}</td>`;
             tbody.appendChild(tr);
         }
         if (allModels.length === 0) {

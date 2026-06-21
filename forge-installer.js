@@ -61,6 +61,9 @@ if (!fs.existsSync(versionDir)) fs.mkdirSync(versionDir, { recursive: true });
 
 const vjId = path.basename(versionDir);
 vj.id = vjId;
+// [CRITICAL - 2026-06-20] inheritsFrom 必须指向纯净的 MC 版本号（如 "26.2"），不能是 Forge 版本号。
+// GAME_VER 是从前端传入的 MC 版本号，FORGE_VER 是 Forge 版本号（如 "64.0.10"）。
+// 如果 inheritsFrom 写错，launcher 会继承错误的基础版本，导致启动时缺少关键类而崩溃。
 if (!vj.inheritsFrom) vj.inheritsFrom = GAME_VER || FORGE_VER;
 
 const vjPath = path.join(versionDir, `${vjId}.json`);
@@ -481,6 +484,9 @@ async function main() {
                 }
             }
         }
+        // [CRITICAL - 2026-06-20] 最终写入版本 JSON 时必须移除 inheritsFrom 并合并所有 vanilla 库。
+        // 这样 launcher 不需要再去查找前置版本的 JSON 文件，避免因前置版本不存在而导致启动失败。
+        // 同时将 vanilla 的 libraries 和 arguments 合并进来，确保启动时所有依赖都齐全。
         const outputJson = {};
         for (const key of Object.keys(vj)) {
             if (key !== 'inheritsFrom') outputJson[key] = vj[key];

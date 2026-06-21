@@ -1,13 +1,13 @@
 {
-  "version": "1.3.2",
-  "releaseDate": "2026-06-20T00:00:00Z",
-  "releaseName": "VersePC v1.3.2",
-  "releaseNotes": "## 更新内容\n\nBug 修复：\n- 修复皮肤查看器一直显示\"加载中\"无法显示 3D 模型\n- 修复 NeoForge 版本被误判为缺少 Forge 文件\n- 修复 NeoForge 核心 JAR 文件名检测错误（缺少 -universal 后缀）\n- 修复 Forge 26.x 启动时 SRG/extra 文件版本不匹配误报\n- 修复 NeoForge 安装时核心 jar 和 patched jar 缺失未自动补全\n- 修复外部版本（如 HMCL）首次启动后被误判为\"错误版本\"\n- NeoForge 核心库缺失时启动自动补下载\n- NeoForge 安装完成后自动校验核心 jar 和 patched jar，缺失则补下载",
+  "version": "1.0.1",
+  "releaseDate": "2026-06-21T00:00:00Z",
+  "releaseName": "VersePC v1.0.1 预览版",
+  "releaseNotes": "VersePC v1.0.1 预览版更新",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/versePc/releases/download/v1.3.2/VersePC-Setup-1.3.2.exe",
-      "size": 163824824,
-      "sha256": "fdd570db2102d66f9c4fa96a705b80f21fc971217d56db85435cefd8b233b70c"
+      "url": "https://github.com/doujie081231/versePc/releases/download/v1.0.1/VersePC-Setup-1.0.1.exe",
+      "size": 163832250,
+      "sha256": "bb53388460ae89ded5eabe7a68dd780ace00962ca140ead498dfecc9d30179e3"
     }
   }
 }
