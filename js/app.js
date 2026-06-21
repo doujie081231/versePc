@@ -2142,7 +2142,9 @@ async function loadSettings() {
         sv('setting-close-on-launch').checked = !!settings.closeOnLaunch;
         sv('setting-auto-update').checked = settings.autoUpdate !== false;
 
-        sv('setting-download-source').value = settings.downloadSource || 'auto';
+        let downloadSourceValue = settings.downloadSource || 'china-first';
+        if (downloadSourceValue === 'bmclapi') downloadSourceValue = 'china-first';
+        sv('setting-download-source').value = downloadSourceValue;
         sv('setting-version-source').value = settings.versionSource || 'auto';
         const maxThreads = settings.maxThreads || 64;
         sv('setting-max-threads').value = maxThreads;
@@ -2213,7 +2215,7 @@ async function saveCurrentSettings() {
         closeOnLaunch: g('setting-close-on-launch')?.checked || false,
         autoUpdate: g('setting-auto-update')?.checked || false,
 
-        downloadSource: g('setting-download-source')?.value || 'mojang',
+        downloadSource: g('setting-download-source')?.value || 'china-first',
         versionSource: g('setting-version-source')?.value || 'mojang',
         maxThreads: parseInt(g('setting-max-threads')?.value || '64', 10),
         enableChunkDownload: g('setting-enable-chunk-download') ? g('setting-enable-chunk-download').checked : true,
@@ -2936,8 +2938,9 @@ function openVersionDetail(versionId, versionUrl, versionType) {
     const typeLabels = { release: '正式版', snapshot: '快照版', special: '愚人节版', old_beta: '旧测试版', old_alpha: '旧内测版' };
     document.getElementById('verdetail-meta').textContent = typeLabels[versionType] || versionType || '正式版';
     
-    const mojangRadio = document.querySelector('input[name="download-source"][value="mojang"]');
-    if (mojangRadio) mojangRadio.checked = true;
+    const selectedSource = document.getElementById('setting-download-source')?.value || 'china-first';
+    const selectedRadio = document.querySelector(`input[name="download-source"][value="${selectedSource}"]`);
+    if (selectedRadio) selectedRadio.checked = true;
     
     selectedLoaderType = '';
     selectedLoaderVersion = '';

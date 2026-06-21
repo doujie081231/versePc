@@ -534,9 +534,24 @@
                         <div class="verdetail-section-title">下载源</div>
                         <div class="download-source-list" id="download-source-list">
                             <label class="ds-item">
-                                <input type="radio" name="download-source" value="mojang" checked>
-                                <span class="ds-name">Mojang 官方源</span>
-                                <span class="ds-desc">官方直连，海外服务器</span>
+                                <input type="radio" name="download-source" value="china-first">
+                                <span class="ds-name">国内优先（默认）</span>
+                                <span class="ds-desc">优先使用 BMCLAPI/MCIM 国内镜像，失败后回退官方源</span>
+                            </label>
+                            <label class="ds-item">
+                                <input type="radio" name="download-source" value="auto">
+                                <span class="ds-name">智能混合</span>
+                                <span class="ds-desc">优先官方源，加载慢时自动切换国内镜像</span>
+                            </label>
+                            <label class="ds-item">
+                                <input type="radio" name="download-source" value="official-first">
+                                <span class="ds-name">官方优先</span>
+                                <span class="ds-desc">先尝试官方源，失败后再回退镜像</span>
+                            </label>
+                            <label class="ds-item">
+                                <input type="radio" name="download-source" value="mojang">
+                                <span class="ds-name">直连 Mojang</span>
+                                <span class="ds-desc">只使用 Mojang 官方源，不使用镜像</span>
                             </label>
                         </div>
                     </div>
@@ -3045,9 +3060,10 @@
                             <div class="form-group">
                                 <label>文件下载源</label>
                                 <select id="setting-download-source" class="select-input">
-                                    <option value="auto">优先使用官方源，在加载缓慢时换用镜像源</option>
-                                    <option value="bmclapi">BMCLAPI 镜像源 (bangbang93)</option>
-                                    <option value="mojang">Mojang 官方源</option>
+                                    <option value="china-first">国内优先（默认）</option>
+                                    <option value="auto">智能混合：优先官方源，在加载慢时换用镜像源</option>
+                                    <option value="official-first">官方优先（失败后回退镜像）</option>
+                                    <option value="mojang">直连 Mojang 官方源</option>
                                 </select>
                             </div>
                             <div class="form-group">

@@ -400,6 +400,66 @@ const MCIM_MIRROR = {
     'https://media.forgecdn.net/': 'https://mod.mcimirror.top/',
 };
 
+const DOWNLOAD_STRATEGIES = {
+    'china-first': 'china-first',
+    'bmclapi': 'china-first',
+    'mirror-first': 'china-first',
+    'auto': 'official-first',
+    'official-first': 'official-first',
+    'mojang': 'mojang'
+};
+
+let CURRENT_DOWNLOAD_SOURCE = null;
+
+function getMirrorUrls(originalUrl, strategy = 'auto') {
+    if (!originalUrl) return [originalUrl];
+    if (strategy === 'mojang') return [originalUrl];
+
+    const bmclapiUrls = [];
+    const mcimUrls = [];
+    const officialUrls = [originalUrl];
+    const extraUrls = [];
+
+    for (const [original, mirror] of Object.entries(BMCLAPI_MIRROR)) {
+        if (originalUrl.startsWith(original)) {
+            const mirrored = originalUrl.replace(original, mirror);
+            if (mirrored !== originalUrl) bmclapiUrls.push(mirrored);
+            break;
+        }
+    }
+
+    for (const [original, mirror] of Object.entries(MCIM_MIRROR)) {
+        if (originalUrl.startsWith(original)) {
+            const mirrored = originalUrl.replace(original, mirror);
+            if (mirrored !== originalUrl) mcimUrls.push(mirrored);
+            break;
+        }
+    }
+
+    if (originalUrl.startsWith('https://libraries.minecraft.net/')) {
+        const forgeMirror = originalUrl.replace('https://libraries.minecraft.net/', 'https://maven.minecraftforge.net/');
+        if (!officialUrls.includes(forgeMirror)) extraUrls.push(forgeMirror);
+        const bmclapiMaven = originalUrl.replace('https://libraries.minecraft.net/', 'https://bmclapi2.bangbang93.com/maven/');
+        if (!bmclapiUrls.includes(bmclapiMaven)) bmclapiUrls.push(bmclapiMaven);
+    }
+
+    const effectiveStrategy = DOWNLOAD_STRATEGIES[strategy] || DOWNLOAD_STRATEGIES.auto;
+    const urls = [];
+    if (effectiveStrategy === 'china-first') {
+        urls.push(...bmclapiUrls, ...mcimUrls, ...extraUrls, ...officialUrls);
+    } else if (effectiveStrategy === 'official-first') {
+        urls.push(...officialUrls, ...bmclapiUrls, ...mcimUrls, ...extraUrls);
+    } else {
+        urls.push(...officialUrls, ...bmclapiUrls, ...mcimUrls, ...extraUrls);
+    }
+
+    const dedup = [];
+    for (const u of urls) {
+        if (u && !dedup.includes(u)) dedup.push(u);
+    }
+    return dedup.length ? dedup : [originalUrl];
+}
+
 const JAVA_DOWNLOAD_MIRRORS = [
     { name: 'BMCLAPI', urlMap: {
         'https://launchermeta.mojang.com/': 'https://bmclapi2.bangbang93.com/',
@@ -2661,7 +2721,7 @@ function loadSettings() {
         selectedVersion: '',
         selectedAccount: '',
 
-        downloadSource: 'auto',
+        downloadSource: 'china-first',
         versionSource: 'auto',
         maxThreads: 16,
         enableChunkDownload: true,
@@ -4620,8 +4680,41 @@ async function downloadFileH2(url, destPath, options = {}) {
     }
 }
 
+async function probeDownloadUrl(url, agent, abortSignal, timeout = 2500) {
+    const start = Date.now();
+    try {
+        const probeR = await httpGet(url, { start: 0, end: 0, timeout, agent });
+        probeR.stream.destroy();
+        const elapsed = Date.now() - start;
+        const supportsRange = probeR.statusCode === 206 || (probeR.statusCode === 200 && (probeR.headers['accept-ranges'] === 'bytes'));
+        const fileSize = probeR.statusCode === 206
+            ? parseInt((probeR.headers['content-range'] || '').match(/\/(\d+)/)?.[1] || '0', 10)
+            : parseInt(probeR.headers['content-length'] || '0', 10);
+        return { url, supportsRange, fileSize, statusCode: probeR.statusCode, elapsed };
+    } catch (e) {
+        return { url, error: e };
+    }
+}
+
+async function orderDownloadUrlsByProbe(urls, agent, abortSignal, maxProbe = 4) {
+    if (!urls || urls.length === 0) return urls;
+    const probeUrls = urls.slice(0, maxProbe);
+    const probes = probeUrls.map((url) => probeDownloadUrl(url, agent, abortSignal, 2500));
+    const results = await Promise.allSettled(probes);
+    const candidates = results
+        .filter(r => r.status === 'fulfilled' && !r.value.error && r.value.fileSize > 0)
+        .map(r => r.value)
+        .sort((a, b) => {
+            if (a.supportsRange !== b.supportsRange) return a.supportsRange ? -1 : 1;
+            return a.elapsed - b.elapsed;
+        })
+        .map(r => r.url);
+    const ordered = [...new Set([...candidates, ...urls])];
+    return ordered;
+}
+
 async function downloadFileChunked(url, destPath, options = {}) {
-    const { retries = 3, onProgress = null, sha1 = null, timeout = 120000, mirrors = null, abortSignal = null, agent: customAgent = null, maxChunks: optMaxChunks = null } = options;
+    const { retries = 3, onProgress = null, sha1 = null, timeout = 120000, stallTimeout = 120000, mirrors = null, abortSignal = null, agent: customAgent = null, maxChunks: optMaxChunks = null } = options;
     const minChunkSize = 512 * 1024;
     const CHUNK_THRESHOLD = 1 * 1024 * 1024;
     // [CRITICAL] 分块下载前清理路径中与目录同名的文件。
@@ -4637,8 +4730,19 @@ async function downloadFileChunked(url, destPath, options = {}) {
         await fs.promises.mkdir(d, { recursive: true });
     }
 
-    const allUrls = mirrors ? [url, ...mirrors.filter(m => m !== url)] : getMirrorUrls(url);
+    let allUrls = mirrors ? [url, ...mirrors.filter(m => m !== url)] : getMirrorUrls(url);
     const _agent = customAgent || undefined;
+
+    if (allUrls.length > 1) {
+        try {
+            allUrls = await orderDownloadUrlsByProbe(allUrls, _agent, abortSignal, 3);
+            if (allUrls.length > 1) {
+                console.log(`[MultiThread] Ordered download URLs by probe: ${allUrls.join(', ')}`);
+            }
+        } catch (probeErr) {
+            console.warn(`[MultiThread] URL probe failed: ${probeErr.message}`);
+        }
+    }
 
     for (let ra = 0; ra <= retries; ra++) {
         if (abortSignal && abortSignal.aborted) throw new Error('下载已取消');
@@ -4713,12 +4817,12 @@ async function downloadFileChunked(url, destPath, options = {}) {
                             if (stallTimer) clearTimeout(stallTimer);
                             stallTimer = setTimeout(() => {
                                 if (!aborted) {
-                                    console.warn(`[Java] Chunk ${c.i} stall timeout (60s), aborting...`);
+                                    console.warn(`[MultiThread] Chunk ${c.i} stall timeout (${stallTimeout}ms), aborting...`);
                                     try { cr.stream.destroy(); } catch (_) {}
                                     try { ws.destroy(); } catch (_) {}
                                     if (_chunkReject) { try { _chunkReject(new Error(`Chunk ${c.i} stall timeout`)); } catch (_) {} _chunkReject = null; }
                                 }
-                            }, 60000);
+                            }, stallTimeout);
                         };
                         resetStall();
                         let _chunkReject = null;
@@ -5113,37 +5217,6 @@ function downloadFileToBuffer(urlStr, onProgress, timeoutMs = 15000) {
     });
 }
 
-function getMirrorUrls(originalUrl) {
-    if (!originalUrl) return [originalUrl];
-    const urls = [];
-    let hasBmclapi = false;
-    for (const [original, mirror] of Object.entries(BMCLAPI_MIRROR)) {
-        if (originalUrl.startsWith(original)) {
-            const mirrored = originalUrl.replace(original, mirror);
-            if (mirrored !== originalUrl) {
-                urls.push(mirrored);
-                hasBmclapi = true;
-            }
-            break;
-        }
-    }
-    for (const [original, mirror] of Object.entries(MCIM_MIRROR)) {
-        if (originalUrl.startsWith(original)) {
-            const mirrored = originalUrl.replace(original, mirror);
-            if (mirrored !== originalUrl && !urls.includes(mirrored)) urls.push(mirrored);
-            break;
-        }
-    }
-    if (originalUrl.startsWith('https://libraries.minecraft.net/')) {
-        const forgeMirror = originalUrl.replace('https://libraries.minecraft.net/', 'https://maven.minecraftforge.net/');
-        if (!urls.includes(forgeMirror)) urls.push(forgeMirror);
-        const bmclapiMaven = originalUrl.replace('https://libraries.minecraft.net/', 'https://bmclapi2.bangbang93.com/maven/');
-        if (!urls.includes(bmclapiMaven)) urls.push(bmclapiMaven);
-    }
-    urls.push(originalUrl);
-    return urls;
-}
-
 async function probeMirrorSpeed(urls, probeSize = 65536, timeoutMs = 5000) {
     if (!urls || urls.length <= 1) return urls;
     const probes = urls.map(async (url) => {
@@ -5170,7 +5243,7 @@ async function probeMirrorSpeed(urls, probeSize = 65536, timeoutMs = 5000) {
 function getMirrorUrl(originalUrl) {
     if (!originalUrl) return originalUrl;
     const urls = getMirrorUrls(originalUrl);
-    return urls.length > 1 ? urls[1] : originalUrl;
+    return urls.length > 1 ? urls[0] : originalUrl;
 }
 
 async function downloadPCLStyle(urls, destPath, { onProgress = null, maxChunks = 16, abortSignal = null, stallTimeout = 45000 } = {}) {
@@ -5360,8 +5433,11 @@ async function downloadPCLStyle(urls, destPath, { onProgress = null, maxChunks =
     throw lastErr || new Error('所有下载源均失败');
 }
 
-async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3, abortSignal = null, customTimeout = null) {
-    const allUrls = getMirrorUrls(urlStr);
+async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3, abortSignal = null, customTimeout = null, downloadSource = null) {
+    if (!downloadSource) {
+        downloadSource = CURRENT_DOWNLOAD_SOURCE || loadSettingsCached().downloadSource || 'china-first';
+    }
+    const allUrls = getMirrorUrls(urlStr, downloadSource);
 
     try {
         const stat = await fs.promises.stat(destPath);
@@ -15788,6 +15864,9 @@ async function performInstallation(sessionId, versionDetails) {
     const session = installSessions.get(sessionId);
     if (!session) { releaseMutex(); _installMutex = null; return; }
 
+    const originalDownloadSource = CURRENT_DOWNLOAD_SOURCE;
+    CURRENT_DOWNLOAD_SOURCE = session.downloadSource || loadSettingsCached().downloadSource || 'china-first';
+
     const isAborted = () => {
         return session.status === 'cancelled' || (session._abortController && session._abortController.signal.aborted);
     };
@@ -16360,6 +16439,7 @@ async function performInstallation(sessionId, versionDetails) {
             console.error(`[Install] Failed to cleanup/restore:`, cleanupErr.message);
         }
     } finally {
+        CURRENT_DOWNLOAD_SOURCE = originalDownloadSource;
         releaseMutex();
         _installMutex = null;
     }
@@ -17456,19 +17536,14 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             for (const tryUrl of allUrls) {
                 if (downloaded || (abortSignal && abortSignal.aborted)) break;
                 try {
-                    if (fileSize > 10 * 1024 * 1024) {
-                        await downloadFileChunked(tryUrl, destPath, {
-                            onProgress: _modOnProgress, retries: 2, timeout: _modTimeout,
-                            abortSignal, agent: _modAgent
-                        });
-                    } else {
-                        // [CRITICAL - 2026-06-21] retries必须>=2！之前是0，下载失败一次就放弃导致大量mod丢失。
-                        // 多次重试，stallTimeout从60s增加到120s适应慢网络。
-                        await _dlSingle(tryUrl, destPath, {
-                            onProgress: _modOnProgress, retries: 3, abortSignal,
-                            timeout: _modTimeout, stallTimeout: 120000, agent: _modAgent
-                        });
-                    }
+                    await downloadFileChunked(tryUrl, destPath, {
+                        onProgress: _modOnProgress,
+                        retries: 2,
+                        timeout: _modTimeout,
+                        abortSignal,
+                        agent: _modAgent,
+                        maxChunks: fileSize > 10 * 1024 * 1024 ? undefined : 1
+                    });
                     if (isJarIntact(destPath)) {
                         const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
                         if (expectedSha1) {
@@ -23240,7 +23315,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                 const versionUrl = data.url;
                 let versionId = data.versionId;
                 const loaderInfo = data.loaderInfo;
-                const downloadSource = data.downloadSource || 'mojang';
+                const downloadSource = data.downloadSource || 'china-first';
                 const customName = data.customName || '';
                 if (!versionUrl) { sendError('Missing version URL', 400); break; }
 
