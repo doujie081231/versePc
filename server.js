@@ -40,6 +40,79 @@ const http = require('http');
 const https = require('https');
 const http2 = require('http2');
 const fs = require('fs');
+
+/*
+[CRITICAL] 全局 ENOTDIR 修复 — Monkey-patch fs.mkdirSync 和 fs.promises.mkdir
+===============================================================================
+【问题原理】
+  Node.js 的 fs.mkdirSync(path, {recursive: true}) 会逐级检查路径中每个组件是否为目录。
+  如果路径中某个组件已经是文件（如 libraries/net 是文件），就会抛出:
+    ENOTDIR: not a directory, mkdir 'C:\Users\xxx\.versepc\libraries\net'
+
+  在我们的场景中，下载库文件如果中途失败，可能在 libraries/ 下创建 0 字节的文件
+  而不是目录。后续所有需要在该路径下创建子目录的操作都会失败。
+
+【为什么需要全局拦截】
+  server.js 中有 80+ 个 mkdirSync/mkdir 调用，不可能逐个添加清理逻辑。
+  而且用户可能通过整合包导入、模组安装、库文件下载等多种途径触发此问题。
+  通过 monkey-patch fs 的 mkdir 方法，任何代码路径（包括第三方依赖）都能
+  自动处理 ENOTDIR 情况。
+
+【修复原理】
+  拦截 fs.mkdirSync 和 fs.promises.mkdir，当捕获到 ENOTDIR 错误时，
+  自动清理路径中冲突的文件，然后重试创建目录。这个过程对调用方完全透明。
+
+[AI-AUTOGEN-WARNING] 请勿删除或修改此 monkey-patch 逻辑。
+*/
+const _origMkdirSync = fs.mkdirSync;
+fs.mkdirSync = function patchedMkdirSync(dir, options) {
+    try {
+        return _origMkdirSync.call(this, dir, options);
+    } catch (e) {
+        if (e && e.code === 'ENOTDIR' && typeof dir === 'string') {
+            const parts = dir.split(path.sep);
+            for (let i = 1; i <= parts.length; i++) {
+                const partial = parts.slice(0, i).join(path.sep);
+                if (partial) {
+                    try {
+                        const st = fs.statSync(partial);
+                        if (!st.isDirectory()) {
+                            fs.unlinkSync(partial);
+                            console.log(`[ENOTDIR-Fix] 清理异常文件: ${partial}`);
+                        }
+                    } catch (_) {}
+                }
+            }
+            return _origMkdirSync.call(this, dir, options);
+        }
+        throw e;
+    }
+};
+
+const _origPromisesMkdir = fs.promises.mkdir;
+fs.promises.mkdir = async function patchedPromisesMkdir(dir, options) {
+    try {
+        return await _origPromisesMkdir.call(this, dir, options);
+    } catch (e) {
+        if (e && e.code === 'ENOTDIR' && typeof dir === 'string') {
+            const parts = dir.split(path.sep);
+            for (let i = 1; i <= parts.length; i++) {
+                const partial = parts.slice(0, i).join(path.sep);
+                if (partial) {
+                    try {
+                        const st = await fs.promises.stat(partial);
+                        if (!st.isDirectory()) {
+                            await fs.promises.unlink(partial);
+                            console.log(`[ENOTDIR-Fix] 清理异常文件: ${partial}`);
+                        }
+                    } catch (_) {}
+                }
+            }
+            return await _origPromisesMkdir.call(this, dir, options);
+        }
+        throw e;
+    }
+};
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
@@ -204,15 +277,20 @@ const dirCache = new Set();
 function ensureDir(filePath) {
     const dir = path.dirname(filePath);
     if (dirCache.has(dir)) return;
-    if (!fs.existsSync(dir)) {
+    let dirExists = false;
+    try {
+        dirExists = fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    } catch (_) {}
+    if (!dirExists) {
         const parts = dir.split(path.sep);
         for (let i = 1; i <= parts.length; i++) {
             const partial = parts.slice(0, i).join(path.sep);
-            if (partial && fs.existsSync(partial)) {
-                const stat = fs.statSync(partial);
-                if (!stat.isDirectory()) {
-                    try { fs.unlinkSync(partial); } catch (_) {}
-                }
+            if (partial) {
+                try {
+                    if (fs.existsSync(partial) && !fs.statSync(partial).isDirectory()) {
+                        fs.unlinkSync(partial);
+                    }
+                } catch (_) {}
             }
         }
         fs.mkdirSync(dir, { recursive: true });
@@ -226,19 +304,26 @@ function ensureDir(filePath) {
 async function asyncEnsureDir(filePath) {
     const dir = path.dirname(filePath);
     if (dirCache.has(dir)) return;
-    const parts = dir.split(path.sep);
-    for (let i = 1; i <= parts.length; i++) {
-        const partial = parts.slice(0, i).join(path.sep);
-        if (partial) {
-            try {
-                const stat = await fs.promises.stat(partial);
-                if (!stat.isDirectory()) {
-                    await fs.promises.unlink(partial);
-                }
-            } catch (_) {}
+    let dirExists = false;
+    try {
+        const st = await fs.promises.stat(dir);
+        dirExists = st.isDirectory();
+    } catch (_) {}
+    if (!dirExists) {
+        const parts = dir.split(path.sep);
+        for (let i = 1; i <= parts.length; i++) {
+            const partial = parts.slice(0, i).join(path.sep);
+            if (partial) {
+                try {
+                    const stat = await fs.promises.stat(partial);
+                    if (!stat.isDirectory()) {
+                        await fs.promises.unlink(partial);
+                    }
+                } catch (_) {}
+            }
         }
+        await fs.promises.mkdir(dir, { recursive: true });
     }
-    await fs.promises.mkdir(dir, { recursive: true });
     dirCache.add(dir);
 }
 
@@ -2620,6 +2705,34 @@ function handleWSMessage(ws, msg) {
     }
 }
 
+/*
+[CRITICAL] 启动时清理 libraries 目录下的异常文件
+=================================================
+在整合包导入或模组安装过程中，如果下载中断，可能在 libraries/ 目录下创建一个 0 字节的文件
+（如 libraries/net、libraries/com 等），而不是目录。这会导致后续所有需要在这些路径下创建
+子目录的操作失败（ENOTDIR: not a directory, mkdir）。
+
+这个清理逻辑在应用启动时运行一次，扫描 libraries/ 下的所有条目，如果发现是文件（不是目录）
+就删除它。这样无论用户之前用哪个版本导致了这个问题，更新后都会自动修复。
+
+[AI-AUTOGEN-WARNING] 请勿删除此清理逻辑。
+*/
+if (fs.existsSync(LIBRARIES_DIR)) {
+    try {
+        const entries = fs.readdirSync(LIBRARIES_DIR);
+        for (const entry of entries) {
+            const fullPath = path.join(LIBRARIES_DIR, entry);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (!stat.isDirectory()) {
+                    fs.unlinkSync(fullPath);
+                    console.log(`[Startup] 清理 libraries 下的异常文件: ${entry}`);
+                }
+            } catch (_) {}
+        }
+    } catch (_) {}
+}
+
 [DATA_DIR, VERSIONS_DIR, LIBRARIES_DIR, ASSETS_DIR, NATIVES_DIR, LOGS_DIR, ICON_CACHE_DIR].forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
@@ -2777,8 +2890,13 @@ function safeWriteFileSync(filePath, content) {
     const tmpPath = filePath + '.tmp';
     try {
         fs.writeFileSync(tmpPath, content, 'utf8');
+        // Windows: rename cannot overwrite existing file, delete target first
+        if (process.platform === 'win32' && fs.existsSync(filePath)) {
+            try { fs.unlinkSync(filePath); } catch (e) {}
+        }
         fs.renameSync(tmpPath, filePath);
     } catch (e) {
+        console.error(`[safeWriteFileSync] Failed to write ${path.basename(filePath)}: ${e.message}`);
         try { fs.writeFileSync(filePath, content, 'utf8'); } catch (e2) {}
         try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (e3) {}
     }
@@ -3636,6 +3754,18 @@ async function performRepair(sessionId, versionId) {
                     try { fs.unlinkSync(libPath); } catch (e) {}
                 }
                 if (!fs.existsSync(path.dirname(libPath))) {
+                    // [CRITICAL] depCheck 自动下载库文件前清理路径中的文件冲突（同 ensureDir 的 ENOTDIR 修复）。
+                    // [AI-AUTOGEN-WARNING] 请勿删除此处的文件清理逻辑。
+                    {
+                        const _d = path.dirname(libPath);
+                        const _parts = _d.split(path.sep);
+                        for (let _i = 1; _i <= _parts.length; _i++) {
+                            const _partial = _parts.slice(0, _i).join(path.sep);
+                            if (_partial && fs.existsSync(_partial)) {
+                                try { const _st = fs.statSync(_partial); if (!_st.isDirectory()) fs.unlinkSync(_partial); } catch (_) {}
+                            }
+                        }
+                    }
                     fs.mkdirSync(path.dirname(libPath), { recursive: true });
                 }
 
@@ -6701,6 +6831,25 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
         const isNeoForgeVersion = (versionJson.libraries || []).some(l => l.name && (l.name.startsWith('net.neoforged:neoforge:') || l.name.startsWith('net.neoforged.fancymodloader:')));
         const hasNeoForgeLibs = (versionJson.libraries || []).some(l => l.name && l.name.startsWith('net.neoforged'));
 
+        // [CRITICAL - 2026-06-21] MC 26+ 新版 Forge 格式检测
+        // MC 26.2 + Forge 65.0.0 使用全新格式：Forge 核心嵌入在版本 JAR 中（39MB），
+        // 不再有独立的 fmlcore、client-srg、client-extra 文件。
+        // 特征：mainClass 是 net.minecraft.client.main.Main（不是 BootstrapLauncher），
+        //       gameArgs 中没有 --fml.forgeVersion，libraries 中没有 net.minecraftforge 库。
+        // 此时应跳过核心文件检查，因为版本 JAR 已包含所有 Forge 核心代码。
+        // [AI-AUTOGEN-WARNING] 不要删除 isNewForgeFormat 检测逻辑，否则 MC 26+ Forge 版本
+        // 会因 DepCheck 误报核心库缺失而无法启动。
+        const gameArgs = versionJson.arguments?.game || [];
+        const hasFmlArgs = gameArgs.some(a => typeof a === 'string' && (a === '--fml.forgeVersion' || a === '--fml.mcVersion'));
+        const hasBootstrapMain = (versionJson.mainClass || '').includes('bootstraplauncher') || (versionJson.mainClass || '').includes('BootstrapLauncher') || (versionJson.mainClass || '').includes('cpw.mods');
+        const hasForgeLibsInJson = forgeLibraries.some(l => l.name && (l.name.startsWith('net.minecraftforge:forge:') || l.name.startsWith('net.minecraftforge:fmlloader:') || l.name.startsWith('net.minecraftforge:fmlcore:')));
+        const isNewForgeFormat = !isNeoForgeVersion && !hasFmlArgs && !hasBootstrapMain && !hasForgeLibsInJson;
+
+        if (isNewForgeFormat) {
+            console.log(`[DepCheck] 检测到新版Forge格式(MC26+)，核心已嵌入版本JAR，跳过核心库检查`);
+            result.forgeCore = { ok: true, missing: [], message: '新版Forge格式，核心已嵌入版本JAR' };
+        } else {
+
         const forgeClientLib = forgeLibraries.find(l =>
             l.name && /^net\.minecraftforge:forge:\d/.test(l.name) && l.name.endsWith(':client')) ||
             forgeLibraries.find(l =>
@@ -6919,6 +7068,8 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
         } else {
             console.log(`[DepCheck] Forge核心库(共${forgeCoreLibs.length}个)全部就绪`);
         }
+
+        } // end else !isNewForgeFormat
     }
 
     if (versionJson.assetIndex) {
@@ -8794,7 +8945,7 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
         
         updateStatus('configuring', 92, '正在配置Java环境变量...');
         try {
-            configureJavaEnv(targetPath, majorVersion);
+            await configureJavaEnv(targetPath, majorVersion);
             console.log(`[Java] 环境变量配置成功: ${targetPath}`);
         } catch (envErr) {
             console.warn(`[Java] 环境变量配置失败(不影响使用): ${envErr.message}`);
@@ -8838,109 +8989,123 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
 }
 
 
+/*
+ * [CRITICAL FUNCTION - READ BEFORE MODIFYING]
+ * ============================================
+ * configureJavaEnv — 配置 Java 系统环境变量（PATH / JAVA_HOME / 用户 PATH）
+ *
+ * 【实现方式】
+ *   使用 PowerShell [Environment]::SetEnvironmentVariable 修改系统级环境变量。
+ *   每个操作独立 try/catch，单步失败不影响其他步骤。
+ *
+ * 【为什么用 execAsync 而不是 execSync？】
+ *   execSync 会阻塞 Node.js 主进程（事件循环冻结），导致：
+ *   - UI 冻结 10-30 秒（每个 PowerShell 调用 10-15 秒超时）
+ *   - 多个轮询请求堆积，完成后同时触发重复 toast 通知
+ *   改用 execAsync 后，异步非阻塞，UI 保持流畅。
+ *
+ * 【为什么加 -NoProfile？】
+ *   PowerShell 默认加载用户配置文件（profile），可能包含大量脚本，启动慢。
+ *   -NoProfile 跳过 profile 加载，显著加速每次调用。
+ *
+ * [AI-AUTOGEN-WARNING]
+ *   - 不要把 execAsync 改回 execSync，会导致 UI 冻结
+ *   - 不要删除 -NoProfile 参数
+ *   - 不要删除独立 try/catch，每个环境变量操作必须独立处理错误
+ */
 function configureJavaEnv(javaHome, majorVersion) {
     if (process.platform !== 'win32') {
         console.log('[JavaEnv] 非Windows平台，跳过系统环境变量配置');
-        return { success: false, message: '非Windows平台，跳过环境变量配置' };
+        return Promise.resolve({ success: false, message: '非Windows平台，跳过环境变量配置' });
     }
 
     const javaBinDir = path.join(javaHome, 'bin');
     if (!fs.existsSync(javaBinDir)) {
-        throw new Error(`Java bin目录不存在: ${javaBinDir}`);
+        return Promise.reject(new Error(`Java bin目录不存在: ${javaBinDir}`));
     }
 
-    try {
-        const currentPath = execSync(
-            `powershell -Command "[Environment]::GetEnvironmentVariable('Path', 'Machine')"`,
-            { encoding: 'utf8', timeout: 10000, windowsHide: true }
-        ).trim();
+    const { exec } = require('child_process');
+    const execAsync = (cmd) => new Promise((resolve, reject) => {
+        exec(cmd, { encoding: 'utf8', timeout: 15000, windowsHide: true }, (err, stdout) => {
+            if (err) reject(err); else resolve(stdout.trim());
+        });
+    });
 
-        const pathEntries = currentPath.split(';').filter(p => p.trim() !== '');
+    return (async () => {
         const normalizedJavaBin = javaBinDir.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-        const alreadyInPath = pathEntries.some(p => 
-            p.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === normalizedJavaBin
-        );
 
-        if (alreadyInPath) {
-            console.log(`[JavaEnv] ${javaBinDir} 已在系统PATH中，跳过`);
-        } else {
-            const newPath = currentPath.endsWith(';') 
-                ? currentPath + javaBinDir 
-                : currentPath + ';' + javaBinDir;
-            execSync(
-                `powershell -Command "[Environment]::SetEnvironmentVariable('Path', '${newPath.replace(/'/g, "''")}', 'Machine')"`,
-                { encoding: 'utf8', timeout: 15000, windowsHide: true }
+        try {
+            const currentPath = await execAsync(`powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path', 'Machine')"`);
+            const pathEntries = currentPath.split(';').filter(p => p.trim() !== '');
+            const alreadyInPath = pathEntries.some(p =>
+                p.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === normalizedJavaBin
             );
-            console.log(`[JavaEnv] 已将 ${javaBinDir} 添加到系统PATH`);
-        }
 
-        const currentJavaHome = execSync(
-            `powershell -Command "[Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine')"`,
-            { encoding: 'utf8', timeout: 10000, windowsHide: true }
-        ).trim();
-
-        const normalizedJavaHome = javaHome.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-        const currentJavaHomeNorm = currentJavaHome.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-
-        if (currentJavaHome && currentJavaHomeNorm !== normalizedJavaHome) {
-            const existingMajorMatch = currentJavaHome.match(/jdk[-]?(\d+)/i);
-            const newMajorMatch = javaHome.match(/jdk[-]?(\d+)/i);
-            const existingMajor = existingMajorMatch ? parseInt(existingMajorMatch[1], 10) : 0;
-            const newMajor = newMajorMatch ? parseInt(newMajorMatch[1], 10) : 0;
-
-            if (newMajor >= existingMajor) {
-                execSync(
-                    `powershell -Command "[Environment]::SetEnvironmentVariable('JAVA_HOME', '${javaHome.replace(/'/g, "''")}', 'Machine')"`,
-                    { encoding: 'utf8', timeout: 15000, windowsHide: true }
-                );
-                console.log(`[JavaEnv] 已更新JAVA_HOME: ${javaHome}`);
+            if (alreadyInPath) {
+                console.log(`[JavaEnv] ${javaBinDir} 已在系统PATH中，跳过`);
             } else {
-                console.log(`[JavaEnv] 现有JAVA_HOME(${currentJavaHome})版本更高，保留不变`);
+                const newPath = currentPath.endsWith(';')
+                    ? currentPath + javaBinDir
+                    : currentPath + ';' + javaBinDir;
+                await execAsync(`powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', '${newPath.replace(/'/g, "''")}', 'Machine')"`);
+                console.log(`[JavaEnv] 已将 ${javaBinDir} 添加到系统PATH`);
             }
-        } else if (!currentJavaHome) {
-            execSync(
-                `powershell -Command "[Environment]::SetEnvironmentVariable('JAVA_HOME', '${javaHome.replace(/'/g, "''")}', 'Machine')"`,
-                { encoding: 'utf8', timeout: 15000, windowsHide: true }
-            );
-            console.log(`[JavaEnv] 已设置JAVA_HOME: ${javaHome}`);
+        } catch (e) {
+            console.warn(`[JavaEnv] PATH配置失败(不影响): ${e.message}`);
         }
 
         try {
-            const currentUserPath = execSync(
-                `powershell -Command "[Environment]::GetEnvironmentVariable('Path', 'User')"`,
-                { encoding: 'utf8', timeout: 10000, windowsHide: true }
-            ).trim();
+            const currentJavaHome = await execAsync(`powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine')"`);
+            const normalizedJavaHome = javaHome.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
+            const currentJavaHomeNorm = currentJavaHome.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
+
+            if (currentJavaHome && currentJavaHomeNorm !== normalizedJavaHome) {
+                const existingMajorMatch = currentJavaHome.match(/jdk[-]?(\d+)/i);
+                const newMajorMatch = javaHome.match(/jdk[-]?(\d+)/i);
+                const existingMajor = existingMajorMatch ? parseInt(existingMajorMatch[1], 10) : 0;
+                const newMajor = newMajorMatch ? parseInt(newMajorMatch[1], 10) : 0;
+
+                if (newMajor >= existingMajor) {
+                    await execAsync(`powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('JAVA_HOME', '${javaHome.replace(/'/g, "''")}', 'Machine')"`);
+                    console.log(`[JavaEnv] 已更新JAVA_HOME: ${javaHome}`);
+                } else {
+                    console.log(`[JavaEnv] 现有JAVA_HOME(${currentJavaHome})版本更高，保留不变`);
+                }
+            } else if (!currentJavaHome) {
+                await execAsync(`powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('JAVA_HOME', '${javaHome.replace(/'/g, "''")}', 'Machine')"`);
+                console.log(`[JavaEnv] 已设置JAVA_HOME: ${javaHome}`);
+            }
+        } catch (e) {
+            console.warn(`[JavaEnv] JAVA_HOME配置失败(不影响): ${e.message}`);
+        }
+
+        try {
+            const currentUserPath = await execAsync(`powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path', 'User')"`);
             const userPathEntries = currentUserPath.split(';').filter(p => p.trim() !== '');
-            const inUserPath = userPathEntries.some(p => 
+            const inUserPath = userPathEntries.some(p =>
                 p.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === normalizedJavaBin
             );
             if (!inUserPath) {
                 const newUserPath = currentUserPath.endsWith(';')
                     ? currentUserPath + javaBinDir
                     : currentUserPath + ';' + javaBinDir;
-                execSync(
-                    `powershell -Command "[Environment]::SetEnvironmentVariable('Path', '${newUserPath.replace(/'/g, "''")}', 'User')"`,
-                    { encoding: 'utf8', timeout: 15000, windowsHide: true }
-                );
+                await execAsync(`powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', '${newUserPath.replace(/'/g, "''")}', 'User')"`);
                 console.log(`[JavaEnv] 已将 ${javaBinDir} 添加到用户PATH`);
             }
-        } catch (userErr) {
-            console.warn(`[JavaEnv] 用户PATH配置失败(不影响): ${userErr.message}`);
+        } catch (e) {
+            console.warn(`[JavaEnv] 用户PATH配置失败(不影响): ${e.message}`);
         }
 
         try {
             process.env.PATH = javaBinDir + ';' + (process.env.PATH || '');
             process.env.JAVA_HOME = javaHome;
             console.log(`[JavaEnv] 当前进程环境变量已更新`);
-        } catch (procErr) {
-            console.warn(`[JavaEnv] 进程环境变量更新失败: ${procErr.message}`);
+        } catch (e) {
+            console.warn(`[JavaEnv] 进程环境变量更新失败: ${e.message}`);
         }
 
         return { success: true, javaHome: javaHome, binPath: javaBinDir };
-
-    } catch (e) {
-        throw new Error(`环境变量配置失败: ${e.message}`);
-    }
+    })();
 }
 
 function detectBundledJava() {
@@ -9018,13 +9183,16 @@ function detectBundledJava() {
         .map(d => d.name);
 
     for (const javaDirName of javaDirs) {
-        findJavaInDir(path.join(JAVA_DIR, javaDirName), 4);
+        // [CRITICAL - 2026-06-21] macOS的Java运行时结构是 jre.bundle/Contents/Home/bin/java，
+        // 比Windows/Linux多2层（.bundle和Contents/Home），所以maxDepth必须>=6。
+        // 之前是4，导致macOS上下载了Java但检测不到，游戏启动失败。
+        findJavaInDir(path.join(JAVA_DIR, javaDirName), 6);
     }
 
     // 也搜索 runtime 目录（Minecraft 官方 Java 运行时安装位置）
     const runtimeDir = path.join(DATA_DIR, 'runtime');
     if (fs.existsSync(runtimeDir)) {
-        findJavaInDir(runtimeDir, 4);
+        findJavaInDir(runtimeDir, 6);
     }
 
     return results;
@@ -14058,7 +14226,45 @@ async function runForgeInstallerJar(installerJarPath, mcDir, onProgress = null, 
 
 
 
-async function installForge(gameVersion, forgeVersion, onProgress = null, mirrorBaseUrl = null) {
+/*
+ * [CRITICAL FUNCTION - READ BEFORE MODIFYING]
+ * ============================================
+ * installForge — 安装 Forge 模组加载器
+ *
+ * 【参数说明】
+ *   gameVersion     - MC 版本号，如 "26.2", "1.20.1"
+ *   forgeVersion    - Forge 版本号，如 "65.0.0", "47.3.0"
+ *   onProgress      - 进度回调 (percent, message)
+ *   mirrorBaseUrl   - 镜像源 URL，null 则用 BMCLAPI
+ *   targetVersionId - 【关键参数】目标版本目录名，如 "26.2-Forge-65.0.0"
+ *                     如果不传，默认用小写 "26.2-forge-65.0.0"
+ *
+ * 【为什么需要 targetVersionId？】
+ *   下载页面创建版本目录时用大写 Forge（如 "26.2-Forge-65.0.0"），但本函数内部
+ *   默认用小写 forge（如 "26.2-forge-65.0.0"）。在 Windows NTFS 上：
+ *   - 目录名大小写不敏感 → 两个路径指向同一目录
+ *   - 但文件名中的大小写差异会导致 JSON/JAR 文件名不同
+ *   - performInstallation 先写入原版 JSON（mainClass=net.minecraft.client.main.Main）
+ *   - forge-installer.js 写入 Forge JSON（mainClass=net.minecraftforge.bootstrap.ForgeBootstrap）
+ *   - 由于文件名大小写不同，写入时序混乱，最终文件内容可能是原版的
+ *   - 结果：用户启动 Forge 版本却看到原版 MC
+ *
+ *   修复方案：由调用方传入 targetVersionId，确保 installForge 写入的文件路径
+ *   与 performInstallation 创建的版本目录完全一致。
+ *
+ * 【调用方式】
+ *   1. performInstallation（下载页面）：必须传 targetVersionId = versionId
+ *      → 例：installForge("26.2", "65.0.0", progress, null, "26.2-Forge-65.0.0")
+ *   2. 修复/重装场景：可以不传 targetVersionId，用默认小写格式
+ *      → 例：installForge("26.2", "65.0.0", progress)
+ *
+ * [AI-AUTOGEN-WARNING]
+ *   - 不要删除 targetVersionId 参数
+ *   - 不要把 performInstallation 中的 installForge 调用改为不传 targetVersionId
+ *   - 不要修改 versionId 的默认值格式（小写 forge）
+ *   - 修改前请理解 Windows NTFS 大小写不敏感的文件系统特性
+ */
+async function installForge(gameVersion, forgeVersion, onProgress = null, mirrorBaseUrl = null, targetVersionId = null) {
     if (forgeVersion && forgeVersion.startsWith(gameVersion + '-')) {
         forgeVersion = forgeVersion.slice(gameVersion.length + 1);
     }
@@ -14101,7 +14307,9 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         }
     }
 
-    const versionId = `${gameVersion}-forge-${forgeVersion}`;
+    // [CRITICAL - 2026-06-21] targetVersionId 防止大小写不一致导致 Forge 启动为原版
+    // 详见函数顶部注释。不要删除 targetVersionId，不要修改默认值格式。
+    const versionId = targetVersionId || `${gameVersion}-forge-${forgeVersion}`;
     const versionStr = `${gameVersion}-${forgeVersion}`;
 
     const baseResult = await ensureBaseVersionInstalled(gameVersion);
@@ -14187,7 +14395,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         const relativePath = entry.replace('maven/', '');
         const destPath = path.join(LIBRARIES_DIR, relativePath);
         const dir = path.dirname(destPath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        ensureDir(destPath);
         if (fs.existsSync(destPath)) {
             const stat = fs.statSync(destPath);
             if (stat.isDirectory()) {
@@ -14208,7 +14416,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
     ip.data.BINPATCH = ip.data.BINPATCH || { client: '', server: '' };
 
     const forgeVersionPath = path.join(LIBRARIES_DIR, 'net', 'minecraftforge', 'forge', versionStr);
-    if (!fs.existsSync(forgeVersionPath)) fs.mkdirSync(forgeVersionPath, { recursive: true });
+    ensureDir(path.join(forgeVersionPath, 'dummy'));
 
     if (zip.getEntry('data/client.lzma')) {
         const clientLzmaPath = path.join(forgeVersionPath, `forge-${versionStr}-clientdata.lzma`);
@@ -14290,9 +14498,18 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
     } catch(_) {}
 
     let nodeExe = 'node';
+    let nodeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '' };
     if (__dirname.includes('app.asar') && process.platform === 'win32') {
         const possibleNode = path.join(path.dirname(process.execPath), 'node.exe');
-        if (fs.existsSync(possibleNode)) nodeExe = possibleNode;
+        if (fs.existsSync(possibleNode)) {
+            nodeExe = possibleNode;
+        } else {
+            // 用户机器上没有安装 Node.js 时，使用 Electron 自身作为 Node.js 运行时。
+            // process.execPath 是 Electron 可执行文件，设置 ELECTRON_RUN_AS_NODE=1
+            // 后它会以 Node.js 模式运行，功能等同于独立的 node 命令。
+            nodeExe = process.execPath;
+            nodeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+        }
     }
     const args = [installerScriptDst,
         '--root', DATA_DIR,
@@ -14308,7 +14525,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         const proc = spawn(nodeExe, args, {
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: '' }
+            env: nodeEnv
         });
         let stdout = '', stderr = '', doneMsg = null;
         const parse = (line) => {
@@ -14412,35 +14629,53 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
                             }
                         }
                         if (missing.length > 0 && onProgress) onProgress(0.95, `下载 Forge 库文件 (0/${missing.length})...`);
-                        let dlCount = 0;
-                        for (const lib of missing) {
-                            dlCount++;
-                            if (onProgress) onProgress(0.95 + Math.min(dlCount / missing.length, 1) * 0.05, `下载 Forge 库文件 (${dlCount}/${missing.length})...`);
-                            try {
-                                if (lib._mavenPath) {
-                                    const lp = path.join(LIBRARIES_DIR, lib._mavenPath);
-                                    fs.mkdirSync(path.dirname(lp), { recursive: true });
-                                    const urls = [];
-                                    if (lib._url) urls.push(lib._url.replace(/\/$/, '') + '/' + lib._mavenPath.split('/').pop());
-                                    urls.push(
-                                        `https://maven.minecraftforge.net/${lib._mavenPath}`,
-                                        `https://libraries.minecraft.net/${lib._mavenPath}`,
-                                        `https://bmclapi2.bangbang93.com/maven/${lib._mavenPath}`,
-                                    );
-                                    let ok = false;
-                                    for (const u of urls) {
-                                        try { await downloadFileWithMirror(u, lp, null, 1, null, 60000); ok = true; break; } catch (_) {}
-                                    }
-                                    if (!ok) console.warn(`[installForge] 下载库 ${lib.name} 失败`);
-                                } else {
-                                    const dl = lib.downloads.artifact;
-                                    const lp = path.join(LIBRARIES_DIR, dl.path);
-                                    fs.mkdirSync(path.dirname(lp), { recursive: true });
-                                    await downloadFileWithMirror(dl.url, lp, null, 2, null, 60000);
+                        if (missing.length > 0) {
+                            const FORGE_LIB_PARALLEL = 8;
+                            let completed = 0;
+                            let failed = 0;
+                            let active = 0;
+                            let done = null;
+
+                            const scheduleNext = () => {
+                                while (active < FORGE_LIB_PARALLEL && completed + failed + active < missing.length) {
+                                    const lib = missing[completed + failed + active];
+                                    active++;
+                                    (async () => {
+                                        if (lib._mavenPath) {
+                                            const lp = path.join(LIBRARIES_DIR, lib._mavenPath);
+                                            ensureDir(path.join(lp, 'dummy'));
+                                            const urls = [];
+                                            if (lib._url) urls.push(lib._url.replace(/\/$/, '') + '/' + lib._mavenPath.split('/').pop());
+                                            urls.push(
+                                                `https://maven.minecraftforge.net/${lib._mavenPath}`,
+                                                `https://libraries.minecraft.net/${lib._mavenPath}`,
+                                                `https://bmclapi2.bangbang93.com/maven/${lib._mavenPath}`,
+                                            );
+                                            let ok = false;
+                                            for (const u of urls) {
+                                                try { await downloadFileWithMirror(u, lp, null, 1, null, 60000); ok = true; break; } catch (_) {}
+                                            }
+                                            if (!ok) throw new Error('所有下载源均失败');
+                                        } else {
+                                            const dl = lib.downloads.artifact;
+                                            const lp = path.join(LIBRARIES_DIR, dl.path);
+                                            ensureDir(path.join(lp, 'dummy'));
+                                            await downloadFileWithMirror(dl.url, lp, null, 2, null, 60000);
+                                        }
+                                    })().then(() => {
+                                        completed++;
+                                    }).catch((e) => {
+                                        console.warn(`[installForge] 下载库 ${lib.name} 失败: ${e.message}`);
+                                        failed++;
+                                    }).finally(() => {
+                                        active--;
+                                        if (onProgress) onProgress(0.95 + Math.min((completed + failed) / missing.length, 1) * 0.05, `下载 Forge 库文件 (${completed + failed}/${missing.length})...`);
+                                        if (active === 0 && completed + failed >= missing.length && done) done();
+                                        else if (active < FORGE_LIB_PARALLEL && completed + failed + active < missing.length) scheduleNext();
+                                    });
                                 }
-                            } catch (e) {
-                                console.warn(`[installForge] 下载库 ${lib.name} 失败: ${e.message}`);
-                            }
+                            };
+                            await new Promise(resolve => { done = resolve; scheduleNext(); });
                         }
                     }
                 } catch (e) {
@@ -14870,6 +15105,13 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null) {
         const installerLibPath2 = path.join(LIBRARIES_DIR, 'net', 'neoforged', pkg, neoVersion, `${pkg}-${neoVersion}-installer.jar`);
         if (!fs.existsSync(installerLibPath2) && fs.existsSync(installerPath)) {
             try {
+                // [CRITICAL] ENOTDIR 修复 — 同 ensureDir，清理路径中的文件冲突。
+                {
+                    const _d = path.dirname(installerLibPath2);
+                    for (const _p of _d.split(path.sep).map((_, _i, _a) => _a.slice(0, _i + 1).join(path.sep))) {
+                        if (_p) { try { const _s = fs.statSync(_p); if (!_s.isDirectory()) fs.unlinkSync(_p); } catch (_) {} }
+                    }
+                }
                 fs.mkdirSync(path.dirname(installerLibPath2), { recursive: true });
                 fs.copyFileSync(installerPath, installerLibPath2);
                 console.log(`[NeoForge] 复制 installer → ${installerLibPath2}`);
@@ -14917,6 +15159,13 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null) {
         if (!fs.existsSync(patchedJarLibPath) || (await fs.promises.stat(patchedJarLibPath).catch(() => ({ size: 0 })).then(s => s.size)) < 1024) {
             if (fs.existsSync(patchedJarVerPath)) {
                 try {
+                    // [CRITICAL] ENOTDIR 修复 — 同 ensureDir，清理路径中的文件冲突。
+                    {
+                        const _d = path.dirname(patchedJarLibPath);
+                        for (const _p of _d.split(path.sep).map((_, _i, _a) => _a.slice(0, _i + 1).join(path.sep))) {
+                            if (_p) { try { const _s = fs.statSync(_p); if (!_s.isDirectory()) fs.unlinkSync(_p); } catch (_) {} }
+                        }
+                    }
                     fs.mkdirSync(path.dirname(patchedJarLibPath), { recursive: true });
                     fs.copyFileSync(patchedJarVerPath, patchedJarLibPath);
                     console.log(`[NeoForge] Patched JAR已复制到libraries: ${path.basename(patchedJarLibPath)}`);
@@ -15647,7 +15896,16 @@ async function mergeOptiFineToVersion(versionId, gameVersion, optiFineVersion, o
         };
 
         const targetLibPath = path.join(LIBRARIES_DIR, optiFineLib.downloads.artifact.path);
-        if (!fs.existsSync(path.dirname(targetLibPath))) fs.mkdirSync(path.dirname(targetLibPath), { recursive: true });
+        if (!fs.existsSync(path.dirname(targetLibPath))) {
+            // [CRITICAL] ENOTDIR 修复 — 同 ensureDir，清理路径中的文件冲突。
+            {
+                const _d = path.dirname(targetLibPath);
+                for (const _p of _d.split(path.sep).map((_, _i, _a) => _a.slice(0, _i + 1).join(path.sep))) {
+                    if (_p) { try { const _s = fs.statSync(_p); if (!_s.isDirectory()) fs.unlinkSync(_p); } catch (_) {} }
+                }
+            }
+            fs.mkdirSync(path.dirname(targetLibPath), { recursive: true });
+        }
         fs.copyFileSync(optiFinePath, targetLibPath);
         try { fs.unlinkSync(optiFinePath); } catch (e) {}
 
@@ -16334,11 +16592,18 @@ async function performInstallation(sessionId, versionDetails) {
                 if (loaderType === 'fabric') {
                     await mergeFabricLoaderToVersion(versionId, gameVersion, loaderVersion, loaderProgress);
                 } else if (loaderType === 'forge') {
+                    // [CRITICAL - 2026-06-21] 必须传 versionId 作为 targetVersionId！
+                    // download 页面创建的版本目录用大写 Forge（如 "26.2-Forge-65.0.0"），
+                    // installForge 默认用小写 forge（如 "26.2-forge-65.0.0"）。
+                    // Windows NTFS 大小写不敏感，目录相同但文件名不同，会导致 JSON 被覆盖为原版。
+                    // 传入 versionId 确保 installForge 写入正确的文件路径。
+                    // 详见 installForge 函数顶部注释。
+                    // [AI-AUTOGEN-WARNING] 不要删除 ", null, versionId"，否则 Forge 版本会启动为原版。
                     loaderResult = await installForge(gameVersion, loaderVersion, (p, msg) => {
                         if (session.status === 'cancelled') return;
                         session.progress = Math.min(94 + p * 4, 98);
                         session.message = msg || `正在安装Forge ${loaderVersion}...`;
-                    });
+                    }, null, versionId);
                     if (loaderResult.success && loaderResult.versionId) {
                         const versionJsonPath = path.join(VERSIONS_DIR, versionId, `${versionId}.json`);
                         if (fs.existsSync(versionJsonPath)) {
@@ -23323,6 +23588,12 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                 let details = await getVersionDetails(versionUrl);
                 
                 if (loaderInfo && loaderInfo.type && loaderInfo.version) {
+                    // [CRITICAL - 2026-06-21] loaderSuffix 首字母大写（如 "Forge"），生成的版本ID
+                    // 如 "26.2-Forge-65.0.0"。此格式必须与 performInstallation 中
+                    // installForge 调用时传入的 versionId 一致，否则 Windows NTFS 上
+                    // 会因大小写不敏感导致文件覆盖冲突，Forge 版本启动为原版。
+                    // 详见 installForge 函数顶部注释。
+                    // [AI-AUTOGEN-WARNING] 不要修改 loaderSuffix 的大小写格式。
                     const loaderSuffix = loaderInfo.type === 'neoforge' ? 'NeoForge' : 
                                         loaderInfo.type.charAt(0).toUpperCase() + loaderInfo.type.slice(1);
                     const defaultName = `${details.id}-${loaderSuffix}-${loaderInfo.version}`;
@@ -27152,7 +27423,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                         sendError('Java目录不存在: ' + javaHome, 400);
                         break;
                     }
-                    const result = configureJavaEnv(javaHome, majorVersion || 17);
+                    const result = await configureJavaEnv(javaHome, majorVersion || 17);
                     sendJSON({ success: true, ...result });
                 } catch (e) {
                     sendError('配置环境变量失败: ' + e.message);

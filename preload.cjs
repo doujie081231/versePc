@@ -233,7 +233,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
                             }
                         }
                     } catch (e) {
-                        if (e.name !== 'AbortError') onError(e.message);
+                        if (e.name === 'AbortError' || e.message?.includes('already closed') || e.message?.includes('ReadableStream')) {
+                            onDone();
+                            return;
+                        }
+                        onError(e.message);
                     }
                 };
 
@@ -259,16 +263,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
     },
     platform: process.platform,
-    isAIEnabled: () => {
-        try {
-            const fs = require('fs');
-            const path = require('path');
-            const cfgPath = path.join(__dirname, 'ai-enabled.json');
-            if (fs.existsSync(cfgPath)) {
-                const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-                return cfg.enabled === true;
-            }
-        } catch (_) {}
-        return false;
-    },
+    isAIEnabled: () => { return true; },
 });

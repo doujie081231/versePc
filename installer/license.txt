@@ -1,6 +1,15 @@
-﻿VersePC 软件许可协议
+VersePC 软件许可协议 v2.0
 
 版权所有 (C) 2026 豆杰。保留所有权利。
+
+致谢声明：
+VersePC 在开发过程中参考了以下开源项目的部分实现思路：
+- PCL (Plain Craft Launcher)：下载、启动、版本管理功能
+  项目地址：https://github.com/Meloong-Git/PCL
+  原作者：龙腾猫跃
+- HMCL (Hello Minecraft! Launcher)：联机功能
+  项目地址：https://github.com/HMCL-dev/HMCL
+本软件是独立开发的产品，与上述项目官方无关。
 
 本软件（VersePC）的所有权归豆杰所有。
 

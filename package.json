@@ -6,7 +6,7 @@
         "name": "豆杰",
         "email": "versepc@example.com"
     },
-    "license": "VPSVL-1.0",
+    "license": "VPSVL-2.0",
     "main": "main.js",
     "scripts": {
         "start": "electron .",

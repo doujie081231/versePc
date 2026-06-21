@@ -3,10 +3,13 @@ VersePC Source Visible License (VPSVL) v2.0
 Copyright (c) 2026 doujie081231
 
 致谢声明：
-VersePC 在开发过程中参考了 PCL (Plain Craft Launcher) 的部分实现思路。
-PCL 项目地址：https://github.com/Meloong-Git/PCL
-PCL 原作者：龙腾猫跃
-本软件是独立开发的产品，与 PCL 官方无关。
+VersePC 在开发过程中参考了以下开源项目的部分实现思路：
+- PCL (Plain Craft Launcher)：下载、启动、版本管理功能
+  项目地址：https://github.com/Meloong-Git/PCL
+  原作者：龙腾猫跃
+- HMCL (Hello Minecraft! Launcher)：联机功能
+  项目地址：https://github.com/HMCL-dev/HMCL
+本软件是独立开发的产品，与上述项目官方无关。
 
 1. DEFINITIONS
    "Software" refers to the VersePC source code and all associated files.

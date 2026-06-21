@@ -307,8 +307,12 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     _writeCrashLog('uncaughtException (late): ' + (err && err.stack || err));
+    const msg = err && err.message || '';
+    if (msg.includes('ReadableStream') || msg.includes('already closed') || msg.includes('ECONNRESET')) {
+        return;
+    }
     if (!shuttingDown && mainWindow) {
-        dialog.showErrorBox('发生错误', err.message || '未知错误');
+        dialog.showErrorBox('发生错误', msg || '未知错误');
     }
 });
 

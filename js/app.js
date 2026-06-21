@@ -4514,6 +4514,10 @@ async function openModDetail(projectId, source) {
 
     if (!mdVersionList) { console.error('[ModDetail] Required elements not found'); return; }
 
+    // 立即清空旧版本列表，防止切换时短暂显示上一个模组的版本
+    mdVersionList.innerHTML = '';
+    if (mdVersionTabs) mdVersionTabs.innerHTML = '';
+
     const cached = _projectDataCache.get(projectId);
     const hasPreloaded = _versionPreloadCache.has(projectId);
     if (cached) {
@@ -4532,7 +4536,6 @@ async function openModDetail(projectId, source) {
             }
         }, 400);
     }
-    if (mdVersionTabs) mdVersionTabs.innerHTML = '';
 
     try {
         const versionsPromise = hasPreloaded
@@ -9604,6 +9607,13 @@ async function openResourceDetail(projectId, type) {
 
     if (!mdName || !mdVersionList) return;
 
+    // 立即清空旧内容，防止切换整合包时短暂显示上一个整合包的版本列表
+    mdVersionList.innerHTML = '';
+    if (mdVersionTabs) mdVersionTabs.innerHTML = '';
+
+    // 竞态保护：记录本次请求的 ID，API 返回时检查是否仍是最新的
+    const _reqId = projectId;
+
     const typeNames = { mod: '模组', modpack: '整合包', resourcepack: '材质包', shader: '光影包', datapack: '数据包' };
     const typeIcons = { mod: '🧩', modpack: '📦', resourcepack: '🎨', shader: '✨', datapack: '📊' };
 
@@ -9644,6 +9654,8 @@ async function openResourceDetail(projectId, type) {
 
         const [detail, data] = await Promise.all([detailPromise, versionsPromise]);
         if (_resLoadingTimer) { clearTimeout(_resLoadingTimer); _resLoadingTimer = null; }
+        // 竞态保护：如果在等待 API 期间用户已经打开了另一个整合包，丢弃本次结果
+        if (currentModDetailId !== _reqId) { console.log(`[ResDetail] 请求 ${_reqId} 已过期，当前 ${currentModDetailId}，跳过渲染`); return; }
         if (!detail) {
             mdName.textContent = '加载失败';
             mdVersionList.innerHTML = `<p class="empty-text" style="padding:30px 0;text-align:center;color:var(--text-muted)">无法加载详情: API请求失败，请检查网络连接</p>`;
