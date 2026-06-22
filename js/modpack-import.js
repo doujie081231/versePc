@@ -105,18 +105,25 @@
                     const updateData = {
                         progress: displayPct,
                         status: 'downloading',
-                        message: stageText
+                        message: stageText + (typeof buildImportSpeedSuffix === 'function' ? buildImportSpeedSuffix(data) : '')
                     };
+                    let filesArr = [];
+                    if (data.speed) {
+                        filesArr.push({ name: '下载速度: ' + (typeof formatSpeed === 'function' ? formatSpeed(data.speed) : String(data.speed) + ' B/s'), progress: 0, status: 'downloading', size: '' });
+                    }
                     if (data.files && data.files.length > 0) {
-                        updateData.files = data.files.map(function (f) {
+                        filesArr = filesArr.concat(data.files.map(function (f) {
                             return {
                                 name: f.name || f.filename || f.path || '',
                                 status: f.status || 'pending',
                                 progress: f.progress || 0,
-                                size: f.size ? (typeof formatSize === 'function' ? formatSize(f.size) : f.size) : ''
+                                size: f.size ? (typeof formatSize === 'function' ? formatSize(f.size) : f.size) : '',
+                                speed: f.speed || 0,
+                                downloaded: f.downloaded || 0
                             };
-                        });
+                        }));
                     }
+                    if (filesArr.length > 0) updateData.files = filesArr;
                     dlManager.update(taskId, updateData);
                 }
             });

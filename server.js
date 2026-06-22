@@ -14270,7 +14270,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
     const installerPath = path.join(DATA_DIR, 'temp', `forge-installer-${versionStr}.jar`);
     fs.mkdirSync(path.dirname(installerPath), { recursive: true });
 
-    if (onProgress) onProgress(0, 'Downloading Forge installer...');
+    if (onProgress) onProgress(0, '正在下载 Forge 安装器...');
 
     const installerUrls = [
         `${forgeMavenBase}/${versionStr}/forge-${versionStr}-installer.jar`,
@@ -14301,10 +14301,10 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         }
     }
     if (!installerOk) {
-        return { success: false, error: 'Forge installer download/verify failed' };
+        return { success: false, error: 'Forge 安装器下载/验证失败' };
     }
 
-    if (onProgress) onProgress(0.1, 'Extracting Forge installer...');
+    if (onProgress) onProgress(0.1, '正在解压 Forge 安装器...');
 
     const versionDir = path.join(VERSIONS_DIR, versionId);
     fs.mkdirSync(versionDir, { recursive: true });
@@ -14319,7 +14319,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         ip = JSON.parse(profileEntry.getData().toString('utf8'));
     }
     if (!ip) {
-        return { success: false, error: 'install_profile.json not found in installer' };
+        return { success: false, error: '安装器中缺失 install_profile.json 文件' };
     }
 
     let vj = null;
@@ -14334,7 +14334,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         }
     }
     if (!vj) {
-        return { success: false, error: 'version.json not found in installer' };
+        return { success: false, error: '安装器中缺失 version.json 文件' };
     }
 
     const mavenEntries = entries.filter(e => e.startsWith('maven/'));
@@ -14383,7 +14383,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         server: `[net.minecraftforge:forge:${versionStr}:installer]`
     };
 
-    if (onProgress) onProgress(0.2, 'Preparing processors...');
+    if (onProgress) onProgress(0.2, '正在准备处理器...');
 
     const processors = (ip.processors || [])
         .filter(proc => !proc.sides || proc.sides.indexOf('client') !== -1);
@@ -14434,7 +14434,7 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
     const configPath = path.join(DATA_DIR, 'temp', `forge-config-${versionStr}.json`);
     fs.writeFileSync(configPath, JSON.stringify(configData, null, 2));
 
-    if (onProgress) onProgress(0.3, 'Running Forge processors...');
+    if (onProgress) onProgress(0.3, '正在运行 Forge 处理器...');
 
     const installerScriptSrc = path.join(__dirname, 'forge-installer.js');
     const installerScriptDst = path.join(DATA_DIR, 'temp', `forge-installer-${versionId}.js`);
@@ -16943,9 +16943,10 @@ async function importModpackFromPath(filePath, onProgress, targetVersion = '', a
             stageHistory.push({ stage, message, progress: pct });
         }
         _writeImportLog(`[进度] ${stage} ${Math.round(pct)}% - ${message || ''} ${currentFile ? '(' + currentFile + ')' : ''}`);
-        const filesSnapshot = files ? files.slice(0, Math.min(files.length, 200)).map(f => ({ n: f.name, s: f.status, p: f.progress || 0, e: f.error || '', sp: f.speed || 0 })) : [];
+        const filesSnapshot = files ? files.slice(0, Math.min(files.length, 200)).map(f => ({ name: f.name, status: f.status, progress: f.progress || 0, error: f.error || '', speed: f.speed || 0 })) : [];
         const stagesSnapshot = stageHistory.map(s => ({ stage: s.stage, message: s.message, progress: s.progress }));
-        if (typeof onProgress === 'function') onProgress({ stage, message, progress: pct, files: filesSnapshot, currentFile: currentFile || '', stageHistory: stagesSnapshot });
+        const totalSpeed = filesSnapshot.reduce((a, b) => a + (b.status === 'downloading' ? (b.speed || 0) : 0), 0);
+        if (typeof onProgress === 'function') onProgress({ stage, message, progress: pct, files: filesSnapshot, currentFile: currentFile || '', stageHistory: stagesSnapshot, speed: totalSpeed });
     };
 
     _clearImportLog();
@@ -17753,7 +17754,9 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
             smoothPct = smoothPct * 0.75 + clamped * 0.25;
         }
         const finalPct = Math.max(lastReportedPct, Math.round(smoothPct));
-        if (finalPct <= lastReportedPct && now - lastProgUpdate < 200) return;
+        // 即使百分比没变，只要下载中的文件有速度信息且距离上次更新超过500ms，也允许通过以更新速度显示
+        const hasActiveSpeed = modFiles.some(mf => mf.status === 'downloading' && (mf.speed || 0) > 0);
+        if (finalPct <= lastReportedPct && now - lastProgUpdate < 200 && !(hasActiveSpeed && now - lastProgUpdate > 500)) return;
         lastReportedPct = finalPct;
         lastProgUpdate = now;
         const totalDone = okCount + failCount;
@@ -18643,7 +18646,7 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
                                             if (p && cfModFiles[index]) {
                                                 cfModFiles[index].progress = Math.round(p.progress || 0);
                                                 cfModFiles[index].downloaded = p.downloaded || 0;
-                                                cfModFiles[index].speed = p.speed || '';
+                                                cfModFiles[index].speed = p.speed || 0;
                                             }
                                             cfUpdateOverall();
                                         },
@@ -26059,16 +26062,49 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                                         const curBytes = p.bytesDownloaded || 0;
                                         if (curBytes >= _mpMaxBytes) _mpMaxBytes = curBytes;
                                         session.progress = rdType === 'modpack' ? Math.round(pct * 0.45) : pct;
-                                        session.downloadSpeed = p.speed || 0;
+                                        // 速度计算：chunked下载的onProgress回调中 p.speed 可能为0，
+                                        // 因此同时读取 DownloadManager 的全局平滑速度作为参考。
+                                        // DownloadManager.refreshSpeed() 每100ms运行一次，
+                                        // 使用30个样本的加权移动平均，天然平滑不会跳变。
+                                        // 两者都取较大值：回调速度可能更及时，全局速度更平滑稳定。
+                                        // 当两者均为0（如合并分块阶段无数据下载），则正确显示0 KB/s。
+                                        // 本地独立速度计算：不依赖 DownloadManager（其定时器会因连接释放而停止）
+                                        const _now = Date.now();
+                                        if (!session._speedState) {
+                                            session._speedState = { lastBytes: 0, lastTime: _now, smoothSpeed: 0 };
+                                        }
+                                        const _timeDelta = (_now - session._speedState.lastTime) / 1000;
+                                        const _byteDelta = _mpMaxBytes - session._speedState.lastBytes;
+                                        let _localSpeed = 0;
+                                        if (_timeDelta >= 0.3) {
+                                            _localSpeed = _byteDelta / _timeDelta;
+                                            session._speedState.lastBytes = _mpMaxBytes;
+                                            session._speedState.lastTime = _now;
+                                            session._speedState.smoothSpeed = session._speedState.smoothSpeed > 0
+                                                ? session._speedState.smoothSpeed * 0.7 + _localSpeed * 0.3
+                                                : _localSpeed;
+                                        }
+                                        const _localSpeedDisp = Math.round(session._speedState.smoothSpeed);
+                                        session.downloadSpeed = _localSpeedDisp;
                                         session.bytesDownloaded = _mpMaxBytes;
                                         session.totalSize = p.totalBytes || fileSize;
-                                        const speedKB = p.speed ? Math.round(p.speed / 1024) : 0;
+                                        const speedKB = _localSpeedDisp > 0 ? Math.round(_localSpeedDisp / 1024) : 0;
                                         session.message = `下载 ${safeName} ${pct}% (${speedKB}KB/s)`;
                                         session.currentFile = safeName;
                                         session.phase = 'download';
-                                        if (!session._lastLogPct || pct - session._lastLogPct >= 10 || pct === 100) {
+                                        // 终端日志：每5%或速度变化>100KB/s或状态变更时输出，便于调试
+                                        const _speedKBDisp = speedKB > 0 ? speedKB : 0;
+                                        const _speedChanged = Math.abs(_speedKBDisp - (session._lastLogSpeed || 0)) > 100;
+                                        const _pctChanged = !session._lastLogPct || pct - session._lastLogPct >= 5 || pct === 100;
+                                        if (_pctChanged || _speedChanged) {
                                             session._lastLogPct = pct;
-                                            console.log(`[Modpack] 下载进度: ${safeName} ${pct}% (${speedKB}KB/s)`);
+                                            session._lastLogSpeed = _speedKBDisp;
+                                            const _dlPhase = rdType === 'modpack' ? '[Modpack]' : '[Download]';
+                                            const _sizeMB = (fileSize / 1024 / 1024).toFixed(1);
+                                            const _dlMB = (session.bytesDownloaded / 1024 / 1024).toFixed(1);
+                                            const _activeConns = typeof DownloadManager !== 'undefined' ? DownloadManager.activeConnections : 0;
+                                            const _speedStr = _speedKBDisp > 0 ? `${_speedKBDisp}KB/s` : '---';
+                                            console.log(`${_dlPhase} ${safeName} ${pct}% | ${_dlMB}/${_sizeMB} MB | ${_speedStr} | 连接:${_activeConns} | 源:${_sortedUrls?.[0]?.substring(0,40)||'N/A'}`);
                                         }
                                         if (rdType === 'modpack') {
                                             if (!session.stageHistory) session.stageHistory = [];
@@ -26258,7 +26294,11 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                                                 if (s.status === 'cancelled') return;
                                                 const np = 45 + Math.round(p.progress * 0.55);
                                                 s.progress = Math.max(s.progress || 0, np);
-                                                s.message = p.message || '安装中...';
+                                                s.downloadSpeed = p.speed || 0;
+                                                const speedKB = p.speed ? Math.round(p.speed / 1024) : 0;
+                                                s.message = p.message
+                                                    ? (speedKB > 0 ? `${p.message} (${speedKB}KB/s)` : p.message)
+                                                    : '安装中...';
                                                 s.phase = p.stage || 'install';
                                                 s.currentFile = p.currentFile || '';
                                                 if (p.files && p.files.length > 0) s.files = p.files;

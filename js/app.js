@@ -5416,10 +5416,16 @@ function showModpackInstallModal(fileName, sessionId) {
             const files = (data.files || []).map(f => ({
                 name: f.name || f.filename || f.path || '',
                 status: f.status || 'pending',
-                size: f.size ? formatSize(f.size) : ''
+                progress: f.progress || 0,
+                size: f.size ? (typeof f.size === 'number' ? formatSize(f.size) : f.size) : '',
+                speed: f.speed || 0
             }));
             const displayStatus = data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : data.status === 'cancelled' ? 'failed' : 'downloading';
-            const displayMessage = data.phase === 'importing' ? '正在安装整合包...' : getDownloadStageText(data);
+            let displayMessage = data.phase === 'importing' ? '正在安装整合包...' : getDownloadStageText(data);
+            const speedSuffix = buildImportSpeedSuffix({ speed: data.downloadSpeed, files: data.files });
+            if (speedSuffix && !/(\d+\s*(KB|MB|B)\/s)/i.test(displayMessage)) {
+                displayMessage += speedSuffix.replace(' | ', ' (') + ')';
+            }
             dlManager.update(taskId, {
                 progress: data.progress || 0,
                 status: displayStatus,
@@ -9356,6 +9362,51 @@ function getImportStageText(msg) {
     return msg;
 }
 
+function buildImportSpeedSuffix(data) {
+    let totalSpeed = data.speed || 0;
+    if (!totalSpeed && data.files && data.files.length > 0) {
+        for (const f of data.files) {
+            if (f.status === 'downloading' && (f.speed || 0) > 0) totalSpeed += f.speed;
+        }
+    }
+    if (totalSpeed <= 0) return '';
+    return typeof formatSpeed === 'function'
+        ? ` | ${formatSpeed(totalSpeed)}`
+        : (totalSpeed > 1024 * 1024
+            ? ` | ${(totalSpeed / 1024 / 1024).toFixed(1)} MB/s`
+            : ` | ${Math.round(totalSpeed / 1024)} KB/s`);
+}
+
+function buildImportProgressUpdate(data, options) {
+    const stageText = getImportStageText(data.message);
+    const updateData = {
+        progress: data.progress || 0,
+        status: 'downloading',
+        message: stageText + buildImportSpeedSuffix(data),
+        stageHistory: data.stageHistory || []
+    };
+    if (options && options.smoothPct !== undefined) {
+        updateData.progress = options.smoothPct;
+    }
+    if (options && options.includeFiles) {
+        const filesArr = [];
+        if (data.files && data.files.length > 0) {
+            for (const f of data.files) {
+                filesArr.push({
+                    name: f.name || f.filename || f.path || '',
+                    status: f.status || 'pending',
+                    progress: f.progress || 0,
+                    size: f.size ? formatSize(f.size) : '',
+                    speed: f.speed || 0,
+                    downloaded: f.downloaded || 0
+                });
+            }
+        }
+        if (filesArr.length > 0) updateData.files = filesArr;
+    }
+    return updateData;
+}
+
 async function importModpackFromFile() {
     if (window._modpackImporting) {
         showToast('整合包正在导入中，请等待完成', 'warning');
@@ -9376,27 +9427,8 @@ async function importModpackFromFile() {
                     if (window.electronAPI?.onImportProgress) {
                         if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
                         window.electronAPI.onImportProgress(function (data) {
-                            const stageText = getImportStageText(data.message);
-                            let speedText = '';
-                            if (data.files && data.files.length > 0) {
-                                let totalSpeed = 0;
-                                let activeCount = 0;
-                                for (const f of data.files) {
-                                    if (f.s === 'downloading' && f.sp > 0) { totalSpeed += f.sp; activeCount++; }
-                                }
-                                if (totalSpeed > 0) {
-                                    const speedMB = (totalSpeed / 1024 / 1024).toFixed(1);
-                                    const speedKB = (totalSpeed / 1024).toFixed(0);
-                                    speedText = totalSpeed > 1024 * 1024 ? ` | ${speedMB} MB/s` : ` | ${speedKB} KB/s`;
-                                }
-                            }
                             console.log(`[Modpack][前端] 进度: ${data.stage} ${data.progress}% ${data.message}` + (data.stageHistory ? ` (阶段数: ${data.stageHistory.length})` : ''));
-                            dlManager.update(taskId, {
-                                progress: data.progress || 0,
-                                status: 'downloading',
-                                message: stageText + speedText,
-                                stageHistory: data.stageHistory || []
-                            });
+                            dlManager.update(taskId, buildImportProgressUpdate(data, { includeFiles: true }));
                         });
                     }
                     showToast('正在导入整合包...', 'info');
@@ -9454,12 +9486,7 @@ document.addEventListener('drop', (e) => {
                 if (window.electronAPI?.onImportProgress) {
                     if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
                     window.electronAPI.onImportProgress(function (data) {
-                        const stageText = getImportStageText(data.message);
-                        dlManager.update(taskId, {
-                            progress: data.progress || 0,
-                            status: 'downloading',
-                            message: stageText
-                        });
+                        dlManager.update(taskId, buildImportProgressUpdate(data, { includeFiles: true }));
                     });
                 }
                 showToast('正在导入整合包...', 'info');
