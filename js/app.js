@@ -7049,18 +7049,38 @@ async function loadAccounts() {
             }).join('');
             
             container.querySelectorAll('.account-avatar-img').forEach(img => {
-                img.onload = function() {
-                    const w = this.naturalWidth || this.width;
-                    const h = this.naturalHeight || this.height;
-                    const isFullSkin = (w === 64 && (h === 64 || h === 32)) || w === 128 || w === 256;
-                    if (isFullSkin) {
-                        const cropped = cropSkinHeadCanvas(this, 64);
-                        if (cropped) {
-                            this.onload = null;
-                            this.src = cropped;
-                        }
-                    }
-                };
+                const avatarSrc = img.src;
+                if (avatarSrc && avatarSrc.includes('/api/avatar')) {
+                    img.removeAttribute('src');
+                    fetch(avatarSrc).then(resp => {
+                        const isFullSkin = resp.headers.get('X-Is-Full-Skin') === 'true';
+                        return resp.blob().then(blob => ({ blob, isFullSkin }));
+                    }).then(({ blob, isFullSkin }) => {
+                        const objUrl = URL.createObjectURL(blob);
+                        img.onload = function() {
+                            if (isFullSkin) {
+                                const cropped = cropSkinHeadCanvas(this, 64);
+                                if (cropped) { this.onload = null; this.src = cropped; URL.revokeObjectURL(objUrl); return; }
+                            }
+                            URL.revokeObjectURL(objUrl);
+                        };
+                        img.src = objUrl;
+                    }).catch(() => {
+                        img.src = avatarSrc;
+                        img.onerror = function() {
+                            const avatarDiv = this.parentElement;
+                            if (avatarDiv) {
+                                this.style.display = 'none';
+                                setTimeout(() => {
+                                    const retryImg = document.createElement('img');
+                                    retryImg.src = avatarSrc.split('&_=')[0] + '&_=' + Date.now();
+                                    retryImg.className = 'account-avatar-img';
+                                    retryImg.onload = function() { avatarDiv.innerHTML = ''; avatarDiv.appendChild(retryImg); };
+                                }, 2000);
+                            }
+                        };
+                    });
+                }
                 img.onerror = function() {
                     const avatarDiv = this.parentElement;
                     if (avatarDiv) {
@@ -7106,34 +7126,39 @@ async function loadAccounts() {
                 homeAvatar.innerHTML = '';
                 homeAvatar.style.backgroundImage = '';
                 const img = document.createElement('img');
-                img.src = accSkinUrl;
                 img.className = 'account-avatar-img';
                 img.width = 64;
                 img.height = 64;
-                img.onload = function() {
-                    try {
-                        const w2 = this.naturalWidth || this.width;
-                        const h2 = this.naturalHeight || this.height;
-                        const isFull = (w2 === 64 && (h2 === 64 || h2 === 32)) || w2 === 128 || w2 === 256;
-                        if (isFull) {
-                            const cropped2 = cropSkinHeadCanvas(this, 64);
-                            if (cropped2) { this.onload = null; this.src = cropped2; return; }
-                        }
-                        localStorage.setItem('cachedAvatarUrl', accSkinUrl);
-                        localStorage.setItem('cachedAvatarId', selectedAccount.id);
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 64; canvas.height = 64;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(this, 0, 0, 64, 64);
-                        const dataUrl = canvas.toDataURL('image/png');
-                        if (dataUrl && dataUrl.length > 100) {
-                            localStorage.setItem('cachedAvatarData', dataUrl);
-                        }
-                    } catch(e) {}
-                };
-                img.onerror = function() {
-                    img.style.display = 'none';
-                    if (true) {
+                fetch(accSkinUrl).then(resp => {
+                    const isFullSkin = resp.headers.get('X-Is-Full-Skin') === 'true';
+                    return resp.blob().then(blob => ({ blob, isFullSkin }));
+                }).then(({ blob, isFullSkin }) => {
+                    const objUrl = URL.createObjectURL(blob);
+                    img.onload = function() {
+                        try {
+                            if (isFullSkin) {
+                                const cropped2 = cropSkinHeadCanvas(this, 64);
+                                if (cropped2) { this.onload = null; this.src = cropped2; URL.revokeObjectURL(objUrl); return; }
+                            }
+                            URL.revokeObjectURL(objUrl);
+                            localStorage.setItem('cachedAvatarUrl', accSkinUrl);
+                            localStorage.setItem('cachedAvatarId', selectedAccount.id);
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 64; canvas.height = 64;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(this, 0, 0, 64, 64);
+                            const dataUrl = canvas.toDataURL('image/png');
+                            if (dataUrl && dataUrl.length > 100) {
+                                localStorage.setItem('cachedAvatarData', dataUrl);
+                            }
+                        } catch(e) {}
+                    };
+                    img.src = objUrl;
+                    homeAvatar.appendChild(img);
+                }).catch(() => {
+                    img.src = accSkinUrl;
+                    img.onerror = function() {
+                        img.style.display = 'none';
                         setTimeout(() => {
                             const retryImg = document.createElement('img');
                             retryImg.src = accSkinUrl.split('&_=')[0] + '&_=' + Date.now();
@@ -7145,9 +7170,9 @@ async function loadAccounts() {
                                 homeAvatar.appendChild(retryImg);
                             };
                         }, 2000);
-                    }
-                };
-                homeAvatar.appendChild(img);
+                    };
+                    homeAvatar.appendChild(img);
+                });
                 if (selectedAccount.type === 'microsoft' || selectedAccount.type === 'thirdparty') {
                     const baseUrl = accSkinUrl.split('&_=')[0];
                     const scheduleRetry = (delay, attempt) => {
@@ -7167,23 +7192,14 @@ async function loadAccounts() {
                                     retryImg.onload = function() {
                                         homeAvatar.innerHTML = '';
                                         homeAvatar.appendChild(retryImg);
-                                        try {
-                                            const rw = retryImg.naturalWidth || retryImg.width;
-                                            const rh = retryImg.naturalHeight || retryImg.height;
-                                            const rFull = (rw === 64 && (rh === 64 || rh === 32)) || rw === 128 || rw === 256;
-                                            if (rFull) {
-                                                const rCrop = cropSkinHeadCanvas(retryImg, 64);
-                                                if (rCrop) { retryImg.src = rCrop; return; }
-                                            }
-                                            const canvas = document.createElement('canvas');
-                                            canvas.width = 64; canvas.height = 64;
-                                            const ctx = canvas.getContext('2d');
-                                            ctx.drawImage(retryImg, 0, 0, 64, 64);
-                                            const dataUrl = canvas.toDataURL('image/png');
-                                            if (dataUrl && dataUrl.length > 100) {
-                                                localStorage.setItem('cachedAvatarData', dataUrl);
-                                            }
-                                        } catch(e) {}
+                                        const rCanvas = document.createElement('canvas');
+                                        rCanvas.width = 64; rCanvas.height = 64;
+                                        const rCtx = rCanvas.getContext('2d');
+                                        rCtx.drawImage(retryImg, 0, 0, 64, 64);
+                                        const rDataUrl = rCanvas.toDataURL('image/png');
+                                        if (rDataUrl && rDataUrl.length > 100) {
+                                            localStorage.setItem('cachedAvatarData', rDataUrl);
+                                        }
                                     };
                                 }
                             } catch(e) {}
@@ -7199,39 +7215,37 @@ async function loadAccounts() {
                 launchAvatar.innerHTML = '';
                 launchAvatar.style.backgroundImage = '';
                 const img2 = document.createElement('img');
-                img2.src = accSkinUrl;
                 img2.className = 'account-avatar-img';
-                img2.onload = function() {
-                    const w3 = this.naturalWidth || this.width;
-                    const h3 = this.naturalHeight || this.height;
-                    const isFull3 = (w3 === 64 && (h3 === 64 || h3 === 32)) || w3 === 128 || w3 === 256;
-                    if (isFull3) {
-                        const cropped3 = cropSkinHeadCanvas(this, 64);
-                        if (cropped3) { this.onload = null; this.src = cropped3; }
-                    }
-                };
-                img2.onerror = function() {
-                    img2.style.display = 'none';
-                    if (true) {
+                fetch(accSkinUrl).then(resp => {
+                    const isFull3 = resp.headers.get('X-Is-Full-Skin') === 'true';
+                    return resp.blob().then(blob => ({ blob, isFull3 }));
+                }).then(({ blob, isFull3 }) => {
+                    const objUrl2 = URL.createObjectURL(blob);
+                    img2.onload = function() {
+                        if (isFull3) {
+                            const cropped3 = cropSkinHeadCanvas(this, 64);
+                            if (cropped3) { this.onload = null; this.src = cropped3; URL.revokeObjectURL(objUrl2); return; }
+                        }
+                        URL.revokeObjectURL(objUrl2);
+                    };
+                    img2.src = objUrl2;
+                    launchAvatar.appendChild(img2);
+                }).catch(() => {
+                    img2.src = accSkinUrl;
+                    img2.onerror = function() {
+                        img2.style.display = 'none';
                         setTimeout(() => {
                             const retryImg2 = document.createElement('img');
                             retryImg2.src = accSkinUrl.split('&_=')[0] + '&_=' + Date.now();
                             retryImg2.className = 'account-avatar-img';
                             retryImg2.onload = function() {
-                                const rw2 = this.naturalWidth || this.width;
-                                const rh2 = this.naturalHeight || this.height;
-                                const rFull2 = (rw2 === 64 && (rh2 === 64 || rh2 === 32)) || rw2 === 128 || rw2 === 256;
-                                if (rFull2) {
-                                    const rCrop2 = cropSkinHeadCanvas(this, 64);
-                                    if (rCrop2) { this.src = rCrop2; }
-                                }
                                 launchAvatar.innerHTML = '';
                                 launchAvatar.appendChild(retryImg2);
                             };
                         }, 2000);
-                    }
-                };
-                launchAvatar.appendChild(img2);
+                    };
+                    launchAvatar.appendChild(img2);
+                });
             }
         } else {
             const homeAvatar = document.getElementById('home-avatar');
@@ -7784,7 +7798,7 @@ function showProfileSelectModal(accessToken, clientToken, serverUrl, profiles) {
         img.onload = function() {
             const w = this.naturalWidth || this.width;
             const h = this.naturalHeight || this.height;
-            const isFullSkin = (w === 64 && (h === 64 || h === 32)) || w === 128 || w === 256;
+            const isFullSkin = (w === 64 && h === 32) || w === 128 || w === 256;
             if (isFullSkin) {
                 const cropped = cropSkinHeadCanvas(this, 64);
                 if (cropped) {

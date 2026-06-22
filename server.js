@@ -870,6 +870,7 @@ async function fetchAvatarData(cleanUuid, avatarServerUrl, avatarUsername, store
         if (cropped) {
             avatarData = cropped;
             avatarContentType = 'image/png';
+            isFullSkin = false;
             console.log('[Avatar] sharp裁剪全皮肤为头像成功');
         } else {
             console.warn('[Avatar] sharp裁剪失败，保留完整皮肤供前端裁剪');
@@ -890,7 +891,7 @@ function refreshAvatarCache(cacheKey, cleanUuid, avatarServerUrl, avatarUsername
     } catch (e) {}
     fetchAvatarData(cleanUuid, avatarServerUrl, avatarUsername, storedSkinUrl).then(result => {
         if (result) {
-            AVATAR_CACHE.set(cacheKey, { data: result.data, contentType: result.contentType, time: Date.now() });
+            AVATAR_CACHE.set(cacheKey, { data: result.data, contentType: result.contentType, time: Date.now(), isFullSkin: result.isFullSkin });
             console.log('[Avatar] 后台刷新成功: ' + cacheKey);
         }
     }).catch(e => {
@@ -20227,6 +20228,14 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                         settings.windowTitle = verSettings.windowTitle;
                         console.log(`[Launch] 使用版本设置窗口标题: ${settings.windowTitle}`);
                     }
+                    if (verSettings.fullscreen && verSettings.fullscreen !== 'global') {
+                        settings.fullscreen = verSettings.fullscreen === true || verSettings.fullscreen === 'true';
+                        console.log(`[Launch] 使用版本设置全屏模式: ${settings.fullscreen}`);
+                    }
+                    if (verSettings.resolution && verSettings.resolution !== '') {
+                        settings.resolution = verSettings.resolution;
+                        console.log(`[Launch] 使用版本设置分辨率: ${settings.resolution}`);
+                    }
                 } catch (e) {
                     console.log(`[Launch] 读取版本设置失败: ${e.message}`);
                 }
@@ -24005,7 +24014,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                 };
 
                 if (cached) {
-                    serveImage(cached.data, cached.contentType);
+                    serveImage(cached.data, cached.contentType, cached.isFullSkin);
                     if (Date.now() - cached.time > AVATAR_CACHE_DURATION) {
                         refreshAvatarCache(cacheKey, cleanUuid, avatarServerUrl, avatarUsername);
                     }
@@ -24013,22 +24022,26 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                 }
 
                 if (isOfflineAccount) {
-                    let offlineHead = null;
+                    let offlineData = null;
+                    let isFullSkin = false;
                     try {
                         const accounts = loadAccounts();
                         const acc = accounts.find(a => (a.uuid || '').replace(/-/g, '') === cleanUuid);
                         if (acc && acc.skinFile) {
                             const skinPath = resolveSkinPath(acc.skinFile);
                             if (skinPath) {
-                                const skinBuf = fs.readFileSync(skinPath);
-                                offlineHead = await cropSkinToHeadWithSharp(skinBuf);
+                                offlineData = fs.readFileSync(skinPath);
+                                isFullSkin = true;
                             }
                         }
                     } catch (e) {}
-                    if (!offlineHead) offlineHead = await getSteveHeadLocal();
-                    if (offlineHead) {
-                        AVATAR_CACHE.set(cacheKey, { data: offlineHead, contentType: 'image/png', time: Date.now() });
-                        serveImage(offlineHead, 'image/png');
+                    if (!offlineData) {
+                        offlineData = await getSteveHeadLocal();
+                        isFullSkin = false;
+                    }
+                    if (offlineData) {
+                        AVATAR_CACHE.set(cacheKey, { data: offlineData, contentType: 'image/png', time: Date.now(), isFullSkin });
+                        serveImage(offlineData, 'image/png', isFullSkin);
                     } else {
                         res.writeHead(302, { Location: '/img/steve_head.png' });
                         res.end();
@@ -24045,7 +24058,7 @@ async function handleAPI(pathname, req, res, parsedUrl) {
                     } catch (e) {}
                     const result = await fetchAvatarData(cleanUuid, avatarServerUrl, avatarUsername, storedSkinUrl);
                     if (result) {
-                        AVATAR_CACHE.set(cacheKey, { data: result.data, contentType: result.contentType, time: Date.now() });
+                        AVATAR_CACHE.set(cacheKey, { data: result.data, contentType: result.contentType, time: Date.now(), isFullSkin: result.isFullSkin });
                         serveImage(result.data, result.contentType, result.isFullSkin);
                     } else {
                         const defaultHead = await getSteveHeadLocal();
