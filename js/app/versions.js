@@ -422,7 +422,7 @@ async function navigateToPage(pageName) {
     return;
   }
 
-  if (pageName === 'explore' || pageName === 'private-server') {
+  if (pageName === 'explore' || pageName === 'private-server' || pageName === 'server-host') {
     if (currentPage) {
       currentPage.classList.remove('active');
       currentPage.style.animation = '';
@@ -433,6 +433,10 @@ async function navigateToPage(pageName) {
     if (navBtn) navBtn.classList.add('active');
     target.classList.add('active');
     target.scrollTop = 0;
+    // 开服页：进入时刷新本地版本列表
+    if (pageName === 'server-host' && typeof initServerHostPage === 'function') {
+      setTimeout(() => initServerHostPage(), 50);
+    }
     return;
   }
   

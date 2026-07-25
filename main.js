@@ -110,6 +110,9 @@ const { registerRedstoneOnlineIPC } = require('./main/redstone-online');
 // 私人服务器管理模块
 const { initPrivateServerIPC } = require('./main/private-server');
 
+// 本地开服（实验）
+const { initServerHostIPC, cleanupServerHost } = require('./main/server-host');
+
 // versepc:// 协议处理模块 - 启动时立即需要（协议注册）
 const {
   setupProtocolHandler, handleVersePCProtocol,
@@ -880,6 +883,7 @@ app.whenReady().then(async () => {
       registerAIProxyIPC();
       registerRedstoneOnlineIPC();
       initPrivateServerIPC();
+      initServerHostIPC();
 
       // V 岛语音助手需要麦克风权限，统一授权（避免 SpeechRecognition 静默失效）
       session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -969,6 +973,7 @@ async function _performShutdownCleanup() {
 
     // 3. 终端会话
     try { cleanupTerminals(); } catch (e) {}
+    try { cleanupServerHost(); } catch (e) {}
 
     // 4. 游戏日志定时器（server 模块导出）
     if (serverModuleCache && typeof serverModuleCache.cleanupGameLogs === 'function') {
@@ -1043,6 +1048,7 @@ app.on('will-quit', (event) => {
   try {
     // 同步清理终端会话（防止 before-quit 没跑完）
     if (typeof cleanupTerminals === 'function') cleanupTerminals();
+    try { if (typeof cleanupServerHost === 'function') cleanupServerHost(); } catch (e) {}
     // 同步清理后台进程
     if (global._bgProcesses) {
       for (const [pid] of Object.entries(global._bgProcesses)) {

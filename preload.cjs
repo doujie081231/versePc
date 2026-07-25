@@ -678,6 +678,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     copyAddress: (address) => ipcRenderer.invoke('private-server:copy-address', address),
   },
 
+  /**
+   * 本地开服（实验）
+   * @namespace serverHost
+   */
+  serverHost: {
+    list: () => ipcRenderer.invoke('server-host:list'),
+    create: (opts) => ipcRenderer.invoke('server-host:create', opts),
+    start: (opts) => ipcRenderer.invoke('server-host:start', opts),
+    stop: (opts) => ipcRenderer.invoke('server-host:stop', opts),
+    command: (opts) => ipcRenderer.invoke('server-host:command', opts),
+    status: (opts) => ipcRenderer.invoke('server-host:status', opts),
+    delete: (opts) => ipcRenderer.invoke('server-host:delete', opts),
+    openDir: (opts) => ipcRenderer.invoke('server-host:open-dir', opts),
+    resolveVersion: (opts) => ipcRenderer.invoke('server-host:resolve-version', opts),
+    detectLoader: (opts) => ipcRenderer.invoke('server-host:detect-loader', opts),
+    syncMods: (opts) => ipcRenderer.invoke('server-host:sync-mods', opts),
+    onLog: (cb) => {
+      const handler = (_e, data) => cb && cb(data);
+      ipcRenderer.on('server-host:log', handler);
+      return () => ipcRenderer.removeListener('server-host:log', handler);
+    },
+    onStatus: (cb) => {
+      const handler = (_e, data) => cb && cb(data);
+      ipcRenderer.on('server-host:status', handler);
+      return () => ipcRenderer.removeListener('server-host:status', handler);
+    },
+  },
+
   /** 当前运行平台（如 'win32' / 'darwin' / 'linux'） */
   platform: process.platform,
 });

@@ -394,6 +394,8 @@ async function retryLaunchDepDownload(versionId, sessionId) {
 
 let _gameStatusTimer = null;
 let _gameWasRunning = false;
+let _gameStatusErrorCount = 0;
+const MAX_STATUS_ERRORS = 5;
 
 async function updateGameStatus() {
   try {
@@ -453,11 +455,22 @@ async function updateGameStatus() {
       }
     }
   } catch (e) {
-    console.error('[Launch] 更新游戏状态失败:', e);
+    _gameStatusErrorCount++;
+    if (_gameStatusErrorCount <= MAX_STATUS_ERRORS) {
+      console.warn(`[Launch] 更新游戏状态失败(${_gameStatusErrorCount}/${MAX_STATUS_ERRORS}):`, e.message);
+    } else {
+      console.error('[Launch] 游戏状态轮询已停止（连续失败超过限制）');
+    }
   } finally {
     // 动态调整轮询间隔：游戏运行时 3 秒，空闲时 15 秒
     if (_gameStatusTimer) clearTimeout(_gameStatusTimer);
-    _gameStatusTimer = setTimeout(updateGameStatus, _gameWasRunning ? 3000 : 15000);
+    // 连续报错超过上限时停止轮询，防止后台忙时无限刷屏
+    if (_gameStatusErrorCount <= MAX_STATUS_ERRORS) {
+      _gameStatusTimer = setTimeout(updateGameStatus, _gameWasRunning ? 3000 : 15000);
+    } else {
+      _gameStatusTimer = null;
+      _gameStatusErrorCount = 0;
+    }
   }
 }
 

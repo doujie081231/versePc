@@ -44,7 +44,6 @@ async function loadInstalledJava() {
                     <div class="java-path">${escapeHtml(j.path)}</div>
                 </div>
                 <div class="java-item-actions">
-                    ${isCurrent ? '' : `<button class="btn btn-primary btn-sm java-set-current-btn" data-java-index="${idx}">设为当前</button>`}
                     ${j.source === 'bundled' ? `<button class="btn btn-danger btn-sm java-delete-btn" data-java-index="${idx}">删除</button>` : ''}
                     ${(j.source === 'manual' || j.source === 'imported') ? `<button class="btn btn-danger btn-sm java-remove-custom-btn" data-java-index="${idx}">${j.source === 'imported' ? '移除并删文件' : '移除'}</button>` : ''}
                 </div>
@@ -213,17 +212,6 @@ document.addEventListener('click', function(e) {
         if (!listEl || !listEl._javaData || !listEl._javaData[idx]) return;
         const j = listEl._javaData[idx];
         deleteJava(j.javaHome, j.majorVersion);
-        return;
-    }
-
-    // 设为当前
-    const setCurrentBtn = e.target.closest('.java-set-current-btn');
-    if (setCurrentBtn) {
-        const idx = parseInt(setCurrentBtn.dataset.javaIndex, 10);
-        const listEl = document.getElementById('installed-java-list');
-        if (!listEl || !listEl._javaData || !listEl._javaData[idx]) return;
-        const j = listEl._javaData[idx];
-        setCurrentJava(j.path);
         return;
     }
 

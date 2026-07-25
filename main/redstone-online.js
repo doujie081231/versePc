@@ -492,23 +492,30 @@ async function startTunnel(params, onLog, options = {}) {
       }
     }, 30000);
 
-    // 启动游戏端口健康检查：每 15 秒 TCP 连接测试一次游戏端口
-    // 连续 2 次检测不到端口才关隧道，避免游戏端口短暂不可用时误关
+    // 启动游戏端口健康检查：每 30 秒 TCP 连接测试一次游戏端口
+    // 连续 3 次检测不到端口（约 90 秒）才关隧道，避免游戏 GC、切场景时端口短暂无响应被误判
+    // 注意：TCP 连接测试会触发 MC 服务器 Server List Ping 响应，过于频繁会干扰 gameSocket
     let _gamePortFailCount = 0;
     const checkGamePort = () => {
       if (state.stopping) return;
+      // 用户主动暂停（如游戏内切到主菜单、加载世界）时跳过本次检查，避免误判
+      if (state._userPaused) {
+        log('[诊断] 用户暂停中，跳过端口检查');
+        return;
+      }
       const gp = state._lastParams ? state._lastParams.gamePort : 25565;
       const test = net.connect(gp, '127.0.0.1', () => {
         _gamePortFailCount = 0;
         test.end();
         test.destroy();
       });
-      test.setTimeout(2000);
+      test.setTimeout(3000);
       test.once('error', () => {
         test.destroy();
         _gamePortFailCount++;
-        if (_gamePortFailCount >= 2) {
-          log('检测到游戏已关闭（端口连续 2 次不可达），自动关闭隧道');
+        log('[诊断] 游戏端口检测失败 ' + _gamePortFailCount + '/3');
+        if (_gamePortFailCount >= 3) {
+          log('检测到游戏已关闭（端口连续 3 次不可达），自动关闭隧道');
           clearInterval(state._gameHealthTimer);
           state._gameHealthTimer = null;
           stopTunnel((m) => {}).catch(() => {});
@@ -519,11 +526,11 @@ async function startTunnel(params, onLog, options = {}) {
       });
       test.once('timeout', () => { test.destroy(); });
     };
-    // 首次检查延迟 30 秒再开始，给游戏足够时间就绪
+    // 首次检查延迟 60 秒再开始，给游戏足够时间加载世界
     state._gameHealthTimer = setTimeout(() => {
       checkGamePort();
-      state._gameHealthTimer = setInterval(checkGamePort, 15000);
-    }, 30000);
+      state._gameHealthTimer = setInterval(checkGamePort, 30000);
+    }, 60000);
 
     // 隧道成功启动，重置重连计数
     if (isReconnect) {

@@ -104,7 +104,7 @@ const ctx = {
     NEOFORGE_API_URL: 'https://maven.neoforged.net/api/maven',
     TEMURIN_API: 'https://api.adoptium.net/v3',
     LIBERICA_BASE: 'https://download.bell-sw.com/java/',
-    MS_CLIENT_ID: 'b5b442d7-5978-4637-a81e-88faf9bfc8a6'
+    MS_CLIENT_ID: '9c1f1f43-58d5-4b7a-af0d-4e487f073441'
   },
 
   mirrors: {
