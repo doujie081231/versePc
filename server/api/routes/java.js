@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { Worker } = require('worker_threads');
 
 module.exports = {
   /**
@@ -18,25 +19,276 @@ module.exports = {
     const { ctx, sendJSON, sendError, readBody } = deps;
     const { java, accounts, utils } = deps;
 
-    /* /api/java/detect - 检测系统与内置 Java 列表 */
-    registerRoute('GET', '/api/java/detect', async (req, res, parsedUrl) => {
+    /* /api/java/detect - 检测系统与内置 Java 列表
+     * 关键优化：Java 检测会用 execSync 同步执行 java -version，系统装多个 Java 时累计卡 5-25 秒
+     * 同步执行会阻塞 server.js 主线程，导致所有 API 请求排队，渲染进程点击"无响应"
+     * 方案：用 worker_thread 把检测放到独立线程跑，完全不阻塞主线程
+     * 同时内存缓存检测结果，首次请求触发后台检测，后续请求立即返回缓存
+     */
+    let _javaDetectCache = null;
+    let _javaDetecting = false;
+    let _javaDetectWaiters = [];
+
+    // Java 检测 worker 脚本（独立线程，不阻塞主线程）
+    const _javaDetectWorkerScript = `
+      const { parentPort, workerData } = require('worker_threads');
+      const { execSync } = require('child_process');
+      const fs = require('fs');
+      const path = require('path');
+
+      function detectSystemJava() {
+        const results = [];
+        const seen = new Set();
+        const isWin = process.platform === 'win32';
+        const javaExeName = isWin ? 'java.exe' : 'java';
+
+        function addJavaEntry(javaExe, source) {
+          try {
+            if (seen.has(javaExe)) return;
+            if (!fs.existsSync(javaExe)) return;
+            seen.add(javaExe);
+
+            const javaHome = path.dirname(path.dirname(javaExe));
+            let version = '';
+            let majorVersion = 0;
+            let minorVersion = 0;
+
+            // 优先读 release 文件（不执行 java，速度快）
+            try {
+              const releasePath = path.join(javaHome, 'release');
+              if (fs.existsSync(releasePath)) {
+                const release = fs.readFileSync(releasePath, 'utf8');
+                const m = release.match(/JAVA_VERSION="([^"]+)"/);
+                if (m) {
+                  version = m[1];
+                  if (version.startsWith('1.')) {
+                    majorVersion = parseInt(version.split('.')[1], 10);
+                  } else {
+                    majorVersion = parseInt(version.split('.')[0], 10);
+                  }
+                }
+              }
+            } catch (e) {}
+
+            // release 文件缺失或解析失败时回退到 java -version
+            if (majorVersion <= 0) {
+              try {
+                const out = execSync('"' + javaExe + '" -version 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+                const m = out.match(/version "([^"]+)"/) || out.match(/version (\\S+)/);
+                if (m) {
+                  version = m[1];
+                  if (version.startsWith('1.')) {
+                    majorVersion = parseInt(version.split('.')[1], 10);
+                  } else {
+                    majorVersion = parseInt(version.split('.')[0], 10);
+                  }
+                }
+              } catch (e) {}
+            }
+
+            if (isNaN(majorVersion) || majorVersion <= 0) return;
+
+            const isJdk = fs.existsSync(path.join(javaHome, 'bin', isWin ? 'javac.exe' : 'javac'));
+            let is64Bit = true;
+            try {
+              const archOut = execSync('"' + javaExe + '" -XshowSettings:properties -version 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+              is64Bit = archOut.includes('os.arch = x86_64') || archOut.includes('os.arch = amd64') || archOut.includes('64-bit');
+            } catch (e) {
+              try {
+                const vOut = execSync('"' + javaExe + '" -version 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+                is64Bit = vOut.includes('64-Bit') || vOut.includes('64-bit');
+              } catch (e2) {}
+            }
+
+            results.push({
+              path: javaExe, version: version, majorVersion: majorVersion,
+              minorVersion: minorVersion, is64Bit: is64Bit, isJdk: isJdk,
+              source: source, javaHome: javaHome
+            });
+          } catch (e) {}
+        }
+
+        function searchFolder(basePath, depth) {
+          if (depth <= 0 || !fs.existsSync(basePath)) return;
+          try {
+            const entries = fs.readdirSync(basePath, { withFileTypes: true });
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue;
+              const dirName = entry.name.toLowerCase();
+              const fullPath = path.join(basePath, entry.name);
+              if (dirName === 'bin') {
+                const javaExe = path.join(fullPath, javaExeName);
+                if (fs.existsSync(javaExe)) addJavaEntry(javaExe, 'system');
+                continue;
+              }
+              const kws = ['java','jdk','jre','jvm','runtime','adopt','temurin','corretto','zulu','openjdk','graalvm','liberica','microsoft','amazon','sapmachine','dragonwell','bisheng'];
+              const isJavaDir = kws.some((kw) => dirName.includes(kw)) || /^jdk[-_]?\\d/i.test(dirName) || /^jre[-_]?\\d/i.test(dirName);
+              if (isJavaDir) {
+                const javaExe = path.join(fullPath, 'bin', javaExeName);
+                if (fs.existsSync(javaExe)) addJavaEntry(javaExe, 'system');
+                searchFolder(fullPath, depth - 1);
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (process.env.JAVA_HOME) {
+          const javaHome = process.env.JAVA_HOME.replace(/["']/g, '').replace(/\\\\$/, '').replace(/\\/$/, '');
+          addJavaEntry(path.join(javaHome, 'bin', javaExeName), 'system');
+        }
+        if (process.env.JDK_HOME) {
+          const javaHome = process.env.JDK_HOME.replace(/["']/g, '').replace(/\\\\$/, '').replace(/\\/$/, '');
+          addJavaEntry(path.join(javaHome, 'bin', javaExeName), 'system');
+        }
+
+        if (isWin) {
+          try {
+            const out = execSync('where java 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            out.split(/\\r?\\n/).forEach((line) => {
+              const p = line.trim();
+              if (p && fs.existsSync(p)) addJavaEntry(p, 'system');
+            });
+          } catch (e) {}
+          const commonDirs = [
+            'C:\\\\Program Files\\\\Java', 'C:\\\\Program Files (x86)\\\\Java',
+            'C:\\\\Program Files\\\\Eclipse Adoptium', 'C:\\\\Program Files\\\\Amazon Corretto',
+            'C:\\\\Program Files\\\\Zulu', 'C:\\\\Program Files\\\\Microsoft'
+          ];
+          commonDirs.forEach((d) => searchFolder(d, 3));
+        }
+        return results;
+      }
+
+      function detectBundledJava(bundledDir) {
+        const results = [];
+        try {
+          if (!fs.existsSync(bundledDir)) return results;
+          const entries = fs.readdirSync(bundledDir, { withFileTypes: true });
+          const javaExeName = process.platform === 'win32' ? 'java.exe' : 'java';
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const javaExe = path.join(bundledDir, entry.name, 'bin', javaExeName);
+            if (fs.existsSync(javaExe)) {
+              try {
+                const out = execSync('"' + javaExe + '" -version 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+                const m = out.match(/version "([^"]+)"/);
+                if (m) {
+                  const version = m[1];
+                  let major = 0;
+                  if (version.startsWith('1.')) major = parseInt(version.split('.')[1], 10);
+                  else major = parseInt(version.split('.')[0], 10);
+                  results.push({
+                    path: javaExe, version: version, majorVersion: major,
+                    is64Bit: true, isJdk: false, source: 'bundled',
+                    javaHome: path.join(bundledDir, entry.name)
+                  });
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+        return results;
+      }
+
+      // 主流程
       try {
-        const systemJava = java.detectSystemJava();
-        const bundledJava = java.detectBundledJava();
-        const customJava = java.detectCustomJava();
-        const allJava = [...bundledJava, ...systemJava, ...customJava];
-        sendJSON(res, {
+        const systemJava = detectSystemJava();
+        let bundledJava = [];
+        try {
+          const bundledDir = path.join(workerData.appRoot, 'runtime');
+          bundledJava = detectBundledJava(bundledDir);
+        } catch (e) {}
+        const allJava = [...bundledJava, ...systemJava];
+        parentPort.postMessage({
           success: true,
-          platform: utils.getPlatformKey(),
+          platform: process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux'),
           javaList: allJava,
           hasJava: allJava.length > 0,
           hasJava17: allJava.some((j) => j.majorVersion >= 17),
           hasJava21: allJava.some((j) => j.majorVersion >= 21)
         });
       } catch (e) {
+        parentPort.postMessage({ success: false, error: e.message, javaList: [] });
+      }
+    `;
+
+    function _detectJavaAsync() {
+      return new Promise((resolve) => {
+        try {
+          const appRoot = path.join(__dirname, '..', '..', '..', '..');
+          const worker = new Worker(_javaDetectWorkerScript, {
+            eval: true,
+            workerData: { appRoot }
+          });
+          let settled = false;
+          const timeout = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            try { worker.terminate(); } catch (e) {}
+            resolve(null);
+          }, 30000);
+          worker.on('message', (msg) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            try { worker.terminate(); } catch (e) {}
+            resolve(msg);
+          });
+          worker.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            console.error('[Java] worker error:', err.message);
+            resolve(null);
+          });
+        } catch (e) {
+          console.error('[Java] worker create failed:', e.message);
+          resolve(null);
+        }
+      });
+    }
+
+    // 后台异步预检测（worker 线程，完全不阻塞主线程）
+    function _refreshJavaCacheInBackground() {
+      if (_javaDetecting) return;
+      _javaDetecting = true;
+      _detectJavaAsync().then((result) => {
+        if (result && result.success) {
+          _javaDetectCache = result;
+        }
+        _javaDetecting = false;
+        // 通知所有等待中的请求
+        while (_javaDetectWaiters.length > 0) {
+          const waiter = _javaDetectWaiters.shift();
+          waiter(result);
+        }
+      });
+    }
+
+    registerRoute('GET', '/api/java/detect', async (req, res, parsedUrl) => {
+      try {
+        // 有缓存立即返回（不阻塞）
+        if (_javaDetectCache) {
+          sendJSON(res, _javaDetectCache);
+          return;
+        }
+        // 无缓存但正在检测：等检测结果
+        if (_javaDetecting) {
+          const result = await new Promise((resolve) => _javaDetectWaiters.push(resolve));
+          sendJSON(res, result || { success: true, javaList: [], hasJava: false });
+          return;
+        }
+        // 无缓存且未检测：启动后台检测并等待
+        _refreshJavaCacheInBackground();
+        const result = await new Promise((resolve) => _javaDetectWaiters.push(resolve));
+        sendJSON(res, result || { success: true, javaList: [], hasJava: false });
+      } catch (e) {
         sendError(res, 'Java检测失败 ' + e.message);
       }
     });
+
+    // server.js 启动后立即后台预检测，用户请求时缓存已准备好
+    _refreshJavaCacheInBackground();
 
     /* /api/java/install - 安装 Java 运行时（旧接口，回调式进度） */
     registerRoute('POST', '/api/java/install', async (req, res, parsedUrl) => {

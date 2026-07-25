@@ -640,12 +640,12 @@
   <script src="js/app/init-setup.js" defer></script>
   <script src="js/app.js" defer></script>
   <script src="js/mod-slug-map.js" defer></script>
-  <script src="js/mod-chinese-names.js" defer></script>
-  <script src="js/file-browser.js" defer></script>
-  <script src="js/crashAnalyzerUI.js" defer></script>
-  <script src="v-island/dynamic-island.js" defer></script>
-  <script src="js/modpack-import.js" defer></script>
-  <script src="js/updater-ui.js" defer></script>
+  <!-- mod-chinese-names.js 延迟加载 -->
+  <!-- file-browser.js 延迟加载 -->
+  <!-- crashAnalyzerUI.js 延迟加载 -->
+  <!-- v-island/dynamic-island.js 延迟加载 -->
+  <!-- modpack-import.js 延迟加载 -->
+  <!-- updater-ui.js 延迟加载 -->
 
   <!-- 页面结构层（js/vue/）：Vue template 字符串，逻辑调用 js/app/*.js -->
   <!-- 引入 Vue 3 运行时 -->
@@ -677,36 +677,104 @@
   <script src="js/vue/page-downloads.js" defer></script>
   <script src="js/vue/page-console.js" defer></script>
   <script>
-    // 挂载 Vue 到首页、版本页、已安装版本页容器
+    // 挂载 Vue 到所有页面容器（分批挂载，避免阻塞主线程导致窗口卡顿）
+    // 主页立即同步挂载（用户最先看到），其他页面用 requestIdleCallback 分批挂载
+    // 数据加载（loadAccounts 等）会等待 window._vueMountDone=true 后再执行，避免模板覆盖
     window.addEventListener('DOMContentLoaded', function() {
-      if (window.Vue && window.VersePC) {
-        if (window.VersePC.PageHome) Vue.createApp(PageHome).mount('#page-home');
-        if (window.VersePC.PageVersions) Vue.createApp(PageVersions).mount('#page-versions');
-        if (window.VersePC.PageInstalledVersions) Vue.createApp(PageInstalledVersions).mount('#page-installed-versions');
-        if (window.VersePC.PageVersionDetail) Vue.createApp(PageVersionDetail).mount('#page-version-detail');
-        if (window.VersePC.PageVersionSettings) Vue.createApp(PageVersionSettings).mount('#page-version-settings');
-        if (window.VersePC.PageMods) Vue.createApp(PageMods).mount('#page-mods');
-        if (window.VersePC.PageModDetail) Vue.createApp(PageModDetail).mount('#page-mod-detail');
-        if (window.VersePC.PageModFavorites) Vue.createApp(PageModFavorites).mount('#page-mod-favorites');
-        if (window.VersePC.PageModpacks) Vue.createApp(PageModpacks).mount('#page-modpacks');
-        if (window.VersePC.PageDatapacks) Vue.createApp(PageDatapacks).mount('#page-datapacks');
-        if (window.VersePC.PageResourcepacks) Vue.createApp(PageResourcepacks).mount('#page-resourcepacks');
-        if (window.VersePC.PageShaders) Vue.createApp(PageShaders).mount('#page-shaders');
-        if (window.VersePC.PageLanTerracotta) Vue.createApp(PageLanTerracotta).mount('#page-lan-terracotta');
-        if (window.VersePC.PageLanPortmap) Vue.createApp(PageLanPortmap).mount('#page-lan-portmap');
-        if (window.VersePC.PageExplore) Vue.createApp(PageExplore).mount('#page-explore');
-        if (window.VersePC.PagePrivateServer) Vue.createApp(PagePrivateServer).mount('#page-private-server');
-        if (window.VersePC.PageServerHost) Vue.createApp(PageServerHost).mount('#page-server-host');
-        if (window.VersePC.PageToolbox) Vue.createApp(PageToolbox).mount('#page-toolbox');
-        if (window.VersePC.PageAccounts) Vue.createApp(PageAccounts).mount('#page-accounts');
-        if (window.VersePC.PageSettingsLaunch) Vue.createApp(PageSettingsLaunch).mount('#page-settings-launch');
-        if (window.VersePC.PageSettingsPersonalize) Vue.createApp(PageSettingsPersonalize).mount('#page-settings-personalize');
-        if (window.VersePC.PageSettingsOther) Vue.createApp(PageSettingsOther).mount('#page-settings-other');
-        if (window.VersePC.PageJava) Vue.createApp(PageJava).mount('#page-java');
-        if (window.VersePC.PageDownloads) Vue.createApp(PageDownloads).mount('#page-downloads');
-        if (window.VersePC.PageConsole) Vue.createApp(PageConsole).mount('#page-console');
+      if (!window.Vue || !window.VersePC) {
+        window._vueMountDone = true;
+        if (window._vueMountResolve) window._vueMountResolve();
+        return;
       }
+
+      // 第一批：主页立即同步挂载，让首屏最快可见
+      if (window.VersePC.PageHome) Vue.createApp(PageHome).mount('#page-home');
+
+      // 其他页面列表（23 个），用 requestIdleCallback 分批挂载
+      var _otherPages = [
+        ['PageVersions', '#page-versions'],
+        ['PageInstalledVersions', '#page-installed-versions'],
+        ['PageVersionDetail', '#page-version-detail'],
+        ['PageVersionSettings', '#page-version-settings'],
+        ['PageMods', '#page-mods'],
+        ['PageModDetail', '#page-mod-detail'],
+        ['PageModFavorites', '#page-mod-favorites'],
+        ['PageModpacks', '#page-modpacks'],
+        ['PageDatapacks', '#page-datapacks'],
+        ['PageResourcepacks', '#page-resourcepacks'],
+        ['PageShaders', '#page-shaders'],
+        ['PageLanTerracotta', '#page-lan-terracotta'],
+        ['PageLanPortmap', '#page-lan-portmap'],
+        ['PageExplore', '#page-explore'],
+        ['PagePrivateServer', '#page-private-server'],
+        ['PageServerHost', '#page-server-host'],
+        ['PageToolbox', '#page-toolbox'],
+        ['PageAccounts', '#page-accounts'],
+        ['PageSettingsLaunch', '#page-settings-launch'],
+        ['PageSettingsPersonalize', '#page-settings-personalize'],
+        ['PageSettingsOther', '#page-settings-other'],
+        ['PageJava', '#page-java'],
+        ['PageDownloads', '#page-downloads'],
+        ['PageConsole', '#page-console']
+      ];
+
+      window._vueMountDone = false;
+      var _batchSize = 4;   // 每批挂载 4 个，留出主线程时间让 UI 响应
+      var _idx = 0;
+
+      function _mountBatch() {
+        var end = Math.min(_idx + _batchSize, _otherPages.length);
+        for (; _idx < end; _idx++) {
+          var name = _otherPages[_idx][0];
+          var sel = _otherPages[_idx][1];
+          try {
+            if (window.VersePC[name]) Vue.createApp(window.VersePC[name]).mount(sel);
+          } catch (e) { console.error('Vue mount failed:', name, e); }
+        }
+        if (_idx >= _otherPages.length) {
+          // 所有页面挂载完成，通知数据加载可以开始了
+          window._vueMountDone = true;
+          if (window._vueMountResolve) window._vueMountResolve();
+          return;
+        }
+        // 让出主线程，等下一次空闲再继续
+        (window.requestIdleCallback || function(cb){ return setTimeout(cb, 16); })(_mountBatch, { timeout: 100 });
+      }
+
+      // 用 setTimeout(0) 先让出一次主线程，让 splash 和主页有机会渲染
+      setTimeout(function() {
+        (window.requestIdleCallback || function(cb){ return setTimeout(cb, 16); })(_mountBatch, { timeout: 100 });
+      }, 0);
     });
+  </script>
+
+  <!-- 非关键脚本懒加载：首屏渲染后再加载，避免阻塞启动 -->
+  <script>
+    (function() {
+      var _lazyScripts = [
+        'js/mod-chinese-names.js',
+        'js/file-browser.js',
+        'js/crashAnalyzerUI.js',
+        'js/modpack-import.js',
+        'js/updater-ui.js',
+        'v-island/dynamic-island.js'
+      ];
+      function _loadLazyScripts() {
+        _lazyScripts.forEach(function(src) {
+          var s = document.createElement('script');
+          s.src = src;
+          s.async = false;
+          document.head.appendChild(s);
+        });
+      }
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(_loadLazyScripts, 50);
+      } else {
+        window.addEventListener('DOMContentLoaded', function() {
+          setTimeout(_loadLazyScripts, 50);
+        });
+      }
+    })();
   </script>
 
   <div id="experimental-disclaimer-modal" class="modal" style="display:none">

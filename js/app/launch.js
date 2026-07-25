@@ -563,6 +563,10 @@ function showCrashAnalysisDialog(result, versionId) {
       </div>
     </div>
     <div style="padding:12px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:var(--bg-secondary);flex-wrap:wrap">
+      ${result.fixType ? `
+      <button id="crash-dialog-vfix" class="crash-btn" style="padding:7px 14px;border:none;background:var(--text-primary);color:var(--bg-primary);border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">
+        用V岛帮我修
+      </button>` : ''}
       <button id="crash-dialog-export" class="crash-btn" style="padding:7px 14px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);border-radius:6px;font-size:12px;cursor:pointer">
         导出完整日志
       </button>
@@ -614,6 +618,27 @@ function showCrashAnalysisDialog(result, versionId) {
       setTimeout(() => { if (typeof repairFiles === 'function') repairFiles(); }, 500);
     }
   });
+
+  // "用V岛帮我修"按钮：把崩溃信息交给V岛，让V岛通过CDP操控启动器自动修复
+  const vfixBtn = dialog.querySelector('#crash-dialog-vfix');
+  if (vfixBtn) {
+    vfixBtn.addEventListener('click', () => {
+      closeDialog();
+      if (window.DynamicIsland && typeof window.DynamicIsland.fixCrash === 'function') {
+        window.DynamicIsland.fixCrash({
+          versionId: versionId,
+          reason: result.reason,
+          solution: result.solution,
+          fixType: result.fixType,
+          fixDesc: result.fixDesc,
+          modName: result.modName,
+          logExcerpt: result.logExcerpt ? result.logExcerpt.slice(0, 10).map(i => i.line).join('\n') : ''
+        });
+      } else {
+        showToast('V岛功能未启用，请先在设置中开启', 'warning');
+      }
+    });
+  }
 
   setTimeout(() => { dialog.querySelector('#crash-dialog-ok').focus(); }, 100);
 }

@@ -360,9 +360,26 @@
     }
 
     // 灵动岛弹出音效：短促高频"啵"声，类似 iPhone 灵动岛
+    // 复用单个 AudioContext，避免每次新建导致内存泄漏
+    var _popSoundCtx = null;
+    function _getPopSoundCtx() {
+        if (!_popSoundCtx) {
+            try {
+                _popSoundCtx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                _popSoundCtx = null;
+            }
+        }
+        // 浏览器可能因自动播放策略挂起 context，尝试恢复
+        if (_popSoundCtx && _popSoundCtx.state === 'suspended') {
+            _popSoundCtx.resume().catch(function () {});
+        }
+        return _popSoundCtx;
+    }
     function _playPopSound() {
         try {
-            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var ctx = _getPopSoundCtx();
+            if (!ctx) return;
             var osc = ctx.createOscillator();
             var gain = ctx.createGain();
             osc.type = 'sine';
@@ -1989,7 +2006,9 @@
     // ========================================================================
     function _initToggle() {
         var el = document.getElementById('vIsland');
-        if (!el) return;
+        if (!el) return false;
+        if (el._vIslandBound) return true; // 已绑定过，跳过
+        el._vIslandBound = true;
         // 恢复保存的状态
         var saved = localStorage.getItem('vIsland-enabled');
         if (saved === 'true') {
@@ -2019,21 +2038,109 @@
                 dismiss();
             }
         });
+        return true;
+    }
 
-        // "重新播放引导"按钮
-        var replayBtn = document.getElementById('v-island-replay-onboarding');
-        if (replayBtn) {
-            replayBtn.onclick = function () {
-                _resetOnboarding();
-                _showOnboarding();
-            };
+    // "重新播放引导"按钮（事件委托，避免 Vue 组件渲染时机问题）
+    document.addEventListener('click', function (e) {
+        if (e.target && e.target.id === 'v-island-replay-onboarding') {
+            _resetOnboarding();
+            _showOnboarding();
+        }
+    });
+
+    // Vue 组件在 DOMContentLoaded 中挂载，defer 脚本先于 DOMContentLoaded 执行，
+    // 因此 _initToggle 可能拿不到 Vue 渲染的 #vIsland 元素。
+    // 用重试机制：立即尝试 → DOMContentLoaded 后重试 → 200ms 后再兜底一次。
+    if (_initToggle()) {
+        // 元素已存在，无需重试
+    } else if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { _initToggle(); });
+        setTimeout(function () { _initToggle(); }, 300);
+    } else {
+        setTimeout(function () { _initToggle(); }, 300);
+    }
+
+    // ========================================================================
+    // 崩溃自动修复：崩溃卡片"用V岛帮我修"按钮入口
+    // 流程：弹出任务卡片 → 用户点"交给V岛修复" → AI 操控界面执行修复 → 总结
+    // ========================================================================
+
+    // 根据崩溃类型生成给 AI 的修复指令
+    function _buildFixInstruction(info) {
+        var base = '游戏「' + (info.versionId || '') + '」启动失败了。失败原因：' + (info.reason || '未知') + '。';
+        switch (info.fixType) {
+            case 'memory':
+                return base + '这是内存不足导致的。请帮我修复：进入"设置"页面，找到内存分配（最大内存）设置，把内存调大到 4096MB（如果已经是 4096 就调到 6144MB），保存后告诉我结果。';
+            case 'missing-dep':
+                return base + '这是缺少前置模组导致的。缺失的依赖：' + (info.modName || '见崩溃日志') + '。请帮我修复：进入"模组"或"下载"页面，搜索并安装缺失的前置模组，注意要与当前游戏版本匹配。';
+            case 'mod-crash':
+                return base + '问题模组：' + (info.modName || '未知') + '。请帮我修复：进入"模组管理"页面，找到这个模组，将它禁用或卸载。';
+            case 'duplicate-mod':
+                return base + '请帮我修复：进入模组管理页面，找到重复安装的模组' + (info.modName ? '（' + info.modName + '）' : '') + '，删除多余的副本，只保留一个。';
+            case 'mod-conflict':
+                return base + '请帮我修复：进入模组管理页面，找到互相冲突的模组，移除其中一个。';
+            case 'file-corrupt':
+            case 'file-missing':
+                return base + '请帮我修复：进入版本设置页面，找到"文件修复"功能并执行修复，重新下载损坏或缺失的文件。';
+            case 'loader-missing':
+                return base + '请帮我修复：重新安装该版本的模组加载器（Forge/Fabric），或者重新安装这个游戏版本。';
+            default:
+                return base + '建议的修复方案：' + (info.solution || '无') + '。请按方案帮我操作完成修复。';
         }
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', _initToggle);
-    } else {
-        _initToggle();
+    // 崩溃修复任务入口
+    function fixCrash(crashInfo) {
+        if (!isEnabled()) return;
+        if (!crashInfo || !crashInfo.fixType) return;
+        if (!_el) _ensureEl();
+
+        _visible = true;
+        _state = 'idle';
+        _expanded = true;
+        _clearHideTimer();
+        if (_autoDismissTimer) { clearTimeout(_autoDismissTimer); _autoDismissTimer = null; }
+        _el.classList.add('v-island--visible', 'v-island--expanded');
+        _el.classList.remove('v-island--chat', 'v-island--thinking');
+
+        var sub = _el.querySelector('.v-island__subtitle');
+        if (sub) {
+            sub.style.display = '';
+            sub.textContent = '检测到可自动修复的问题';
+        }
+
+        var detail = _el.querySelector('.v-island__detail');
+        if (!detail) return;
+
+        var problemText = crashInfo.reason || '游戏启动失败';
+        var fixText = crashInfo.fixDesc || crashInfo.solution || '';
+        detail.innerHTML =
+            '<div class="v-island__reply">' +
+                '<div class="v-island__reply-a" style="font-size:13px;line-height:1.7;">' +
+                    '<div style="font-weight:600;margin-bottom:4px;">' + _esc(problemText) + '</div>' +
+                    (fixText ? '<div style="color:var(--text-muted);font-size:12px;">' + _esc(fixText) + '</div>' : '') +
+                '</div>' +
+                '<div style="margin-top:12px;display:flex;gap:8px;">' +
+                    '<button class="btn btn-primary v-island__fix-accept" style="flex:1;padding:8px 12px;font-size:13px;">交给V岛修复</button>' +
+                    '<button class="btn btn-ghost v-island__fix-cancel" style="flex:1;padding:8px 12px;font-size:13px;">我自己处理</button>' +
+                '</div>' +
+            '</div>';
+
+        speak('检测到游戏启动失败，这个问题我可以帮你自动修复，要交给我处理吗？');
+
+        var acceptBtn = detail.querySelector('.v-island__fix-accept');
+        var cancelBtn = detail.querySelector('.v-island__fix-cancel');
+        if (acceptBtn) {
+            acceptBtn.onclick = function () {
+                _runAgentTask(_buildFixInstruction(crashInfo));
+            };
+        }
+        if (cancelBtn) {
+            cancelBtn.onclick = function () {
+                _showReply('', '好的，如果需要帮助随时叫我');
+            };
+        }
     }
 
     // ========================================================================
@@ -2052,6 +2159,7 @@
         stopSpeak: stopSpeak,
         chatWithAI: chatWithAI,
         showOnboarding: _showOnboarding,
+        fixCrash: fixCrash,
         AI_PROVIDERS: AI_PROVIDERS
     };
 })();

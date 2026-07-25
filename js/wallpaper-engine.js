@@ -557,7 +557,6 @@ class CustomImageRenderer {
                         const mime = mimeMap[ext] || 'image/png';
                         const blob = new Blob([buffer], { type: mime });
                         imgUrl = URL.createObjectURL(blob);
-                        console.log('[Wallpaper] Image loaded as blob URL, size:', buffer.byteLength);
                     }
                 }
             } catch (e) {
@@ -706,7 +705,6 @@ class CustomVideoRenderer {
                     if (buffer && buffer.byteLength > 0) {
                         const blob = new Blob([buffer], { type: 'video/mp4' });
                         videoUrl = URL.createObjectURL(blob);
-                        console.log('[Wallpaper] Video loaded as blob URL, size:', buffer.byteLength);
                     } else {
                         videoUrl = wpfilePath(filePath);
                     }

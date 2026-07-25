@@ -6,7 +6,7 @@ async function init() {
   const splashProgress = document.getElementById('splash-progress');
   const splashOverlay = document.getElementById('splash-overlay');
   const startTime = Date.now();
-  const MIN_SPLASH_DURATION = 300;
+  const MIN_SPLASH_DURATION = 100;
 
   try {
     const earlyTheme = await window.electronAPI.store.get('versepc_theme');
@@ -97,32 +97,61 @@ async function init() {
     console.error('Init critical error:', e);
   }
 
-  // 移除 splash：主题已应用 + UI 按钮已绑定，用户可立即操作主页
+  // 启动动画（splash）会一直显示，覆盖整个 Vue 挂载 + 数据加载过程
+  // 这样用户看到的是：流畅的启动动画 → 直接可用的界面，中间没有卡顿
+  // 必须等所有 Vue 页面挂载完成后再加载数据，否则 loadAccounts 写入的 innerHTML
+  // 会被后续 Vue 挂载的模板覆盖，导致账号列表丢失
+  function _waitForVueMount() {
+    if (window._vueMountDone) return Promise.resolve();
+    return new Promise(function(resolve) { window._vueMountResolve = resolve; });
+  }
+
+  // 阶段1：等 Vue 挂载完成（在 splash 覆盖下，用户看不到卡顿）
+  setProgress(55, '正在加载界面...');
+  await _waitForVueMount();
+
+  // 阶段2：加载核心数据（仍在 splash 覆盖下）
+  setProgress(75, '正在加载数据...');
+  try {
+    await Promise.allSettled([
+      loadSettings(),
+      loadVersions(),
+      loadAccounts(),
+      loadFavoritesData()
+    ]);
+  } catch (e) { console.error('后台数据加载失败:', e); }
+
+  // 阶段3：准备就绪，淡出 splash
+  setProgress(100, '准备就绪!');
   const elapsed = Date.now() - startTime;
   const remainingMinTime = Math.max(MIN_SPLASH_DURATION - elapsed, 0);
   await new Promise(r => setTimeout(r, remainingMinTime));
 
   if (splashOverlay) {
-    splashOverlay.style.transition = 'opacity 0.3s cubic-bezier(0.4,0,0.2,1)';
+    try {
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      void document.body.offsetHeight;
+      void document.documentElement.offsetHeight;
+      await new Promise(r => requestAnimationFrame(r));
+    } catch (e) {}
+
+    splashOverlay.style.transition = 'opacity 0.2s cubic-bezier(0.4,0,0.2,1)';
     splashOverlay.style.opacity = '0';
     splashOverlay.style.pointerEvents = 'none';
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 200));
     try { splashOverlay.remove(); } catch (err) {}
   }
 
-  // 后台异步加载核心数据（不阻塞用户操作主页）
-  setProgress(70, '正在加载数据...');
-  Promise.allSettled([
-    loadSettings(),
-    loadVersions(),
-    loadAccounts(),
-    loadFavoritesData()
-  ]).then(() => {
-    setProgress(100, '准备就绪!');
-  }).catch(e => console.error('后台数据加载失败:', e));
+  // splash 完全消失后，启动后台任务（不阻塞用户交互）
+  setTimeout(_afterFirstPaint, 100);
+}
+
+// splash 淡出后启动的后台任务（不阻塞用户交互）
+function _afterFirstPaint() {
+  // Java 检测会在 Worker 线程异步执行，不阻塞主线程
+  setTimeout(() => checkJavaOnStartup(), 5000);
 
   updateGameStatus();
-  checkJavaOnStartup();
 
   setTimeout(() => {
     triggerJvmPreheat();
@@ -131,7 +160,6 @@ async function init() {
   cacheCommonElements();
 
   if (typeof initWallpaper === 'function') {
-    // 先检查壁纸设置，只有配置了壁纸才加载 THREE.js 和初始化壁纸引擎
     (async () => {
       try {
         const savedWallpaper = await window.electronAPI?.store?.get('versepc_wallpaper');
@@ -145,7 +173,6 @@ async function init() {
     })();
   }
 
-  // 设置页面的壁纸交互（不需要初始化引擎，仅在用户操作时懒加载）
   initWallpaperDropZone();
   initWallpaperAutoAdapt();
 

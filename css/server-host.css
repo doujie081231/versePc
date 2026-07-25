@@ -1,0 +1,245 @@
+/**
+ * server-host.css - 开服页主题化样式（适配 light / dark）
+ */
+
+#page-server-host .settings-container {
+  max-width: 1100px;
+}
+
+/* 表单：统一用 .text-input，避免原生 HTML 样式 */
+#page-server-host .text-input,
+#page-server-host select.text-input {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  padding: 9px 12px;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#page-server-host select.text-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+#page-server-host .text-input:hover {
+  border-color: var(--text-muted);
+}
+
+#page-server-host .text-input:focus {
+  border-color: var(--accent, var(--purple));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, var(--purple)) 18%, transparent);
+}
+
+#page-server-host .text-input::placeholder {
+  color: var(--text-muted);
+}
+
+#page-server-host .sh-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: 520px;
+}
+
+@media (max-width: 720px) {
+  #page-server-host .sh-form-grid {
+    grid-template-columns: 1fr;
+  }
+  #page-server-host .sh-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 进度条：始终占位，避免显示/隐藏抖动 */
+#page-server-host .sh-progress {
+  margin-top: 12px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+#page-server-host .sh-progress.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+#page-server-host .sh-progress-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--purple), var(--accent, #6366f1));
+  transition: width 0.25s ease;
+  min-width: 0;
+}
+
+#page-server-host .sh-progress.is-indeterminate .sh-progress-bar {
+  width: 35% !important;
+  animation: sh-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes sh-indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+#page-server-host .sh-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 18px;
+}
+
+#page-server-host .sh-progress-meta.is-active {
+  color: var(--text-secondary);
+}
+
+/* 服务器卡片 */
+#page-server-host .server-host-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+#page-server-host .server-host-card:hover {
+  border-color: color-mix(in srgb, var(--purple) 50%, var(--border));
+  background: var(--bg-hover);
+}
+
+#page-server-host .server-host-card.is-active {
+  border-color: var(--purple);
+  background: color-mix(in srgb, var(--purple) 10%, var(--bg-secondary));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 25%, transparent);
+}
+
+#page-server-host .server-host-card .title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* 控制台：随主题变色（不再写死黑底） */
+#page-server-host .sh-console {
+  flex: 1;
+  min-height: 260px;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#page-server-host .sh-console-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+#page-server-host .sh-console-line.err { color: #ef4444; }
+#page-server-host .sh-console-line.cmd { color: var(--purple); }
+#page-server-host .sh-console-line.sys { color: #3b82f6; }
+#page-server-host .sh-console-line.ok  { color: #22c55e; }
+
+html.dark-theme #page-server-host .sh-console,
+[data-theme="dark"] #page-server-host .sh-console,
+#app.wp-dark #page-server-host .sh-console {
+  background: #0b1220;
+  color: #cbd5e1;
+  border-color: #1e293b;
+}
+
+html.dark-theme #page-server-host .sh-console-line,
+[data-theme="dark"] #page-server-host .sh-console-line,
+#app.wp-dark #page-server-host .sh-console-line {
+  color: #cbd5e1;
+}
+
+html.dark-theme #page-server-host .sh-console-line.err,
+[data-theme="dark"] #page-server-host .sh-console-line.err,
+#app.wp-dark #page-server-host .sh-console-line.err { color: #f87171; }
+
+html.dark-theme #page-server-host .sh-console-line.cmd,
+[data-theme="dark"] #page-server-host .sh-console-line.cmd,
+#app.wp-dark #page-server-host .sh-console-line.cmd { color: #c4b5fd; }
+
+html.dark-theme #page-server-host .sh-console-line.sys,
+[data-theme="dark"] #page-server-host .sh-console-line.sys,
+#app.wp-dark #page-server-host .sh-console-line.sys { color: #60a5fa; }
+
+html.dark-theme #page-server-host .sh-console-line.ok,
+[data-theme="dark"] #page-server-host .sh-console-line.ok,
+#app.wp-dark #page-server-host .sh-console-line.ok { color: #4ade80; }
+
+#page-server-host .sh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#page-server-host .sh-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+#page-server-host .sh-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--purple) 14%, transparent);
+  color: var(--purple);
+  border: 1px solid color-mix(in srgb, var(--purple) 30%, transparent);
+}
+
+#page-server-host .sh-chip.forge { background: color-mix(in srgb, #e67e22 16%, transparent); color: #d35400; border-color: color-mix(in srgb, #e67e22 35%, transparent); }
+#page-server-host .sh-chip.fabric { background: color-mix(in srgb, #3498db 16%, transparent); color: #2980b9; border-color: color-mix(in srgb, #3498db 35%, transparent); }
+#page-server-host .sh-chip.neoforge { background: color-mix(in srgb, #e74c3c 16%, transparent); color: #c0392b; border-color: color-mix(in srgb, #e74c3c 35%, transparent); }
+#page-server-host .sh-chip.vanilla { background: color-mix(in srgb, #27ae60 16%, transparent); color: #1e8449; border-color: color-mix(in srgb, #27ae60 35%, transparent); }
+
+#page-server-host .sh-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+#page-server-host .sh-cmd-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#page-server-host .sh-cmd-row .text-input {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

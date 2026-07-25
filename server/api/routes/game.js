@@ -537,6 +537,30 @@ module.exports = {
 
         const crashDescription = crashContent ? extractCrashDescription(crashContent) : '';
 
+        // 可自动修复的问题类型映射：fixType → V岛执行的操作描述
+        const autoFixMap = {
+          'java.lang.OutOfMemoryError': { fixType: 'memory', fixDesc: '内存不足，需要增加内存分配' },
+          'Out of Memory Error': { fixType: 'memory', fixDesc: '内存不足，需要增加内存分配' },
+          'The system is out of physical RAM': { fixType: 'memory', fixDesc: '系统物理内存不足，需要增加内存分配' },
+          'Could not reserve enough space': { fixType: 'memory', fixDesc: '无法分配足够内存，需要调整内存设置' },
+          'Could not create the Java Virtual Machine': { fixType: 'memory', fixDesc: 'JVM创建失败，可能是内存设置问题' },
+          'Missing or unsupported mandatory dependencies': { fixType: 'missing-dep', fixDesc: '缺少前置模组，需要安装缺失的依赖' },
+          'Mod File {}, requires a dependency on': { fixType: 'missing-dep', fixDesc: '模组缺少前置依赖，需要安装' },
+          'Caught exception from ': { fixType: 'mod-crash', fixDesc: '模组崩溃，需要更新或移除问题模组' },
+          'LoaderExceptionModCrash': { fixType: 'mod-crash', fixDesc: '模组崩溃，需要更新或移除问题模组' },
+          'Found duplicate mods': { fixType: 'duplicate-mod', fixDesc: '模组重复安装，需要删除重复文件' },
+          'DuplicateModsFoundException': { fixType: 'duplicate-mod', fixDesc: '模组重复安装，需要删除重复文件' },
+          'Incompatible mods found': { fixType: 'mod-conflict', fixDesc: '模组互不兼容，需要移除冲突模组' },
+          'mixin conflict': { fixType: 'mod-conflict', fixDesc: 'Mixin冲突，需要移除冲突模组' },
+          'Mixin apply failed': { fixType: 'mod-crash', fixDesc: 'Mixin注入失败，需要更新或移除问题模组' },
+          'ZipException': { fixType: 'file-corrupt', fixDesc: '文件损坏，需要重新下载' },
+          'invalid stream header': { fixType: 'file-corrupt', fixDesc: '文件损坏，需要重新下载' },
+          'FileNotFoundException': { fixType: 'file-missing', fixDesc: '文件缺失，需要修复' },
+          'Could not read file': { fixType: 'file-corrupt', fixDesc: '文件读取失败，可能已损坏' },
+          'Cannot find launch target': { fixType: 'loader-missing', fixDesc: '加载器启动文件缺失，需要重新安装' },
+          'fmlclient': { fixType: 'loader-missing', fixDesc: 'Forge安装不完整，需要重新安装' },
+        };
+
         let result = { found: false };
         for (const rule of crashRules) {
           if (allLog.includes(rule.pattern)) {
@@ -545,6 +569,8 @@ module.exports = {
               const match = allLog.match(rule.modExtract);
               if (match) modName = match[1];
             }
+            // 检查是否可自动修复
+            const fixInfo = autoFixMap[rule.pattern] || null;
             result = {
               found: true,
               reason: rule.reason,
@@ -553,7 +579,9 @@ module.exports = {
               logFile: logFile,
               severity: rule.severity,
               logExcerpt,
-              crashDescription
+              crashDescription,
+              fixType: fixInfo ? fixInfo.fixType : null,
+              fixDesc: fixInfo ? fixInfo.fixDesc : null
             };
             break;
           }

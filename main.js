@@ -58,11 +58,31 @@ setupV8MemoryLimit();
 const { _runIntegrityCheckAsync } = require('./main/integrity');
 
 /* 模块导入 */
-// 注意：app 已在前面的单实例锁阶段解构，这里只补齐其余 Electron 模块
+// 注意：app 已在前面的单例锁阶段解构，这里只补齐其余 Electron 模块
 const { BrowserWindow, Menu, shell, ipcMain, dialog, screen, protocol, clipboard, net, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+/* 内存压缩模块（Windows 专用）
+ * 最小化时调用 EmptyWorkingSet 释放工作集内存到页面文件
+ * koffi 是纯 JS 实现的 FFI 库，无需编译，调用毫秒级
+ */
+let _trimMemoryFn = null;
+try {
+  if (process.platform === 'win32') {
+    const koffi = require('koffi');
+    const psapi = koffi.load('psapi.dll');
+    const kernel32 = koffi.load('kernel32.dll');
+    const EmptyWorkingSet = psapi.func('bool EmptyWorkingSet(void *hProcess)');
+    const GetCurrentProcess = kernel32.func('void *GetCurrentProcess()');
+    _trimMemoryFn = () => {
+      try { EmptyWorkingSet(GetCurrentProcess()); } catch (e) {}
+    };
+  }
+} catch (e) {
+  console.warn('[MemTrim] koffi 初始化失败，最小化时不压缩内存:', e.message);
+}
 
 /* 全局状态变量 */
 // mainWindow / serverModuleCache 仍保留为 main.js 局部变量（createWindow 与多处
@@ -71,6 +91,8 @@ const os = require('os');
 // isClosingAnimation / savedWindowBounds 已迁移至 window-manager 模块。
 let mainWindow = null;          // 主窗口实例（同步到 sharedState）
 let serverModuleCache = null;   // server.js 模块缓存（同步到 sharedState）
+let _idleTrimTimer = null;      // 空闲内存优化定时器（模块作用域，供 will-quit 清理）
+let _lastInteractionTime = 0;   // 上次用户交互时间戳
 
 /* Windows 任务栏图标关联（必须在 app.ready 之前设置） */
 if (process.platform === 'win32') {
@@ -385,18 +407,62 @@ async function createWindow() {
   });
 
   // 游戏运行低调模式 - 监听最小化/恢复事件，通知渲染进程并同步共享状态供 SSE 降频
+  // 最小化时延迟 1.5 秒后执行全面内存优化，之后每 30 秒维护一次
+  // 空闲 3 分钟后也执行一次优化
+  let _minimizeTrimTimer = null;
+  _lastInteractionTime = Date.now();
+
+  function _doFullMemoryOptimize() {
+    // V8 GC（主进程）
+    if (typeof global.gc === 'function') { global.gc(); global.gc(); }
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      try { mainWindow.webContents.executeJavaScript('gc()', true).catch(() => {}); } catch (e) {}
+      try { mainWindow.webContents.idleOSMemory(); } catch (e) {}
+    }
+    // 清除浏览器缓存
+    try { session.defaultSession.clearCache().catch(() => {}); } catch (e) {}
+    // EmptyWorkingSet 压缩工作集
+    if (typeof _trimMemoryFn === 'function') _trimMemoryFn();
+  }
+
   mainWindow.on('minimize', () => {
     if (!mainWindow.isDestroyed()) {
       try { mainWindow.webContents.send('window-minimize-changed', true); } catch (e) {}
     }
     sharedState.setLauncherMinimized(true);
+    if (_minimizeTrimTimer) clearTimeout(_minimizeTrimTimer);
+    _minimizeTrimTimer = setTimeout(() => {
+      _doFullMemoryOptimize();
+      _minimizeTrimTimer = setInterval(_doFullMemoryOptimize, 30000);
+    }, 1500);
   });
   mainWindow.on('restore', () => {
     if (!mainWindow.isDestroyed()) {
       try { mainWindow.webContents.send('window-minimize-changed', false); } catch (e) {}
     }
     sharedState.setLauncherMinimized(false);
+    if (_minimizeTrimTimer) {
+      clearTimeout(_minimizeTrimTimer);
+      clearInterval(_minimizeTrimTimer);
+      _minimizeTrimTimer = null;
+    }
   });
+
+  // 空闲 3 分钟自动优化：任何用户交互（点击、键盘）都会重置计时器
+  function _resetIdleTimer() {
+    _lastInteractionTime = Date.now();
+  }
+  try {
+    mainWindow.webContents.on('input-event', _resetIdleTimer);
+  } catch (e) {}
+  // 每 30 秒检查一次是否空闲超过 3 分钟
+  _idleTrimTimer = setInterval(() => {
+    if (sharedState.getLauncherMinimized()) return; // 最小化时已有单独优化
+    if (Date.now() - _lastInteractionTime > 180000) { // 3 分钟无操作
+      _doFullMemoryOptimize();
+      _lastInteractionTime = Date.now(); // 重置，避免连续触发
+    }
+  }, 30000);
 
   // 页面加载完成后注入标题栏拖拽样式和窗口模式通知
   mainWindow.webContents.on('did-finish-load', () => {
@@ -533,79 +599,35 @@ ipcMain.handle('get-memory-info', async () => {
 });
 
 ipcMain.handle('memory-optimize', async () => {
-  if (process.platform !== 'win32') {
-    return { success: false, error: '内存优化功能仅支持 Windows 系统' };
-  }
-  const fs = require('fs');
-  const path = require('path');
-  const os = require('os');
-  const psScript = `$ErrorActionPreference = 'Continue'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -MemberDefinition '[DllImport("psapi.dll")] public static extern int EmptyWorkingSet(IntPtr hwProc);' -Name "W32PSAPI" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
-Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] private static extern int SetSystemInformation(uint infoClass, IntPtr info, uint length);' -Name "W32SysInfo" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
-Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);' -Name "W32File" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
-Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] public static extern bool FlushFileBuffers(IntPtr hFile);' -Name "W32Flush" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
-Add-Type -MemberDefinition '[DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr hObject);' -Name "W32Close" -Namespace "VP" -WarningAction SilentlyContinue -PassThru | Out-Null
-$before = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
-function DoRound {
-    try {
-        $h = [VP.W32File]::CreateFile("\\\\.\\C:", 0x40000000, 0x00000003, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
-        if ($h -ne [IntPtr]::Zero -and [long]$h -ne -1) {
-            [void][VP.W32Flush]::FlushFileBuffers($h)
-            [void][VP.W32Close]::CloseHandle($h)
-        }
-    } catch {}
-    Start-Sleep -Milliseconds 1000
-    Get-Process | ForEach-Object {
-        try { [void][VP.W32PSAPI]::EmptyWorkingSet($_.Handle) } catch {}
+  // 用 V8 GC + koffi EmptyWorkingSet + Electron idleOSMemory 快速优化
+  // 不依赖 PowerShell，毫秒级完成，不写临时文件
+  const beforeFreeMB = Math.round(os.freemem() / 1024 / 1024);
+  try {
+    // 1. 主进程 V8 垃圾回收（强制 Full GC）
+    if (typeof global.gc === 'function') {
+      global.gc();
+      global.gc();
     }
-    try { [VP.W32SysInfo]::SetSystemInformation(80, [IntPtr]::Zero, 0) } catch {}
-    try { [VP.W32SysInfo]::SetSystemInformation(81, [IntPtr]::Zero, 0) } catch {}
-    try { [VP.W32SysInfo]::SetSystemInformation(82, [IntPtr]::Zero, 0) } catch {}
-    try { [VP.W32SysInfo]::SetSystemInformation(39, [IntPtr]::Zero, 0) } catch {}
-}
-DoRound
-Start-Sleep -Seconds 3
-[GC]::Collect()
-[GC]::WaitForPendingFinalizers()
-DoRound
-Start-Sleep -Seconds 3
-[GC]::Collect()
-[GC]::WaitForPendingFinalizers()
-DoRound
-Start-Sleep -Seconds 2
-$after = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
-$diff = $after - $before
-@{ Before=$before; After=$after; Diff=$diff } | ConvertTo-Json -Compress`;
-  const tmpScript = path.join(os.tmpdir(), 'versepc_memopt.ps1');
-  return new Promise((resolve) => {
-    try {
-      fs.writeFileSync(tmpScript, psScript, 'utf8');
-    } catch (e) {
-      resolve({ success: false, error: 'write script failed: ' + e.message });
-      return;
-    }
-    const { execFile } = require('child_process');
-    execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpScript], { timeout: 90000 }, (err, stdout, stderr) => {
-      try { fs.unlinkSync(tmpScript); } catch (_) {}
-      if (err) {
-        resolve({ success: false, error: err.message });
-        return;
-      }
+    // 2. 渲染进程 V8 GC
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       try {
-        const result = JSON.parse(stdout.trim());
-        resolve({
-          success: true,
-          freedMB: Math.round(result.Diff),
-          beforeMB: Math.round(result.Before),
-          afterMB: Math.round(result.After)
-        });
-      } catch (e) {
-        resolve({ success: false, error: 'parse failed: ' + e.message });
-      }
-    });
-  });
+        await mainWindow.webContents.executeJavaScript('gc()', true).catch(() => {});
+      } catch (e) {}
+      // 3. 提示 OS 可以回收此进程的工作集内存（不影响运行）
+      try { mainWindow.webContents.idleOSMemory(); } catch (e) {}
+    }
+    // 4. 清除浏览器缓存（session cache）
+    try {
+      await session.defaultSession.clearCache().catch(() => {});
+    } catch (e) {}
+    // 5. EmptyWorkingSet：将不活跃的内存页交换出物理内存
+    if (typeof _trimMemoryFn === 'function') {
+      _trimMemoryFn();
+    }
+  } catch (e) {}
+  const afterFreeMB = Math.round(os.freemem() / 1024 / 1024);
+  const freedMB = Math.max(0, afterFreeMB - beforeFreeMB);
+  return { success: true, freedMB: freedMB, beforeMB: beforeFreeMB, afterMB: afterFreeMB };
 });
 
 ipcMain.handle('jvm-preheat', async (event, javaPath, maxMemMB) => {
@@ -717,6 +739,9 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// 暴露 V8 GC，让内存优化能真正回收 V8 堆空间
+app.commandLine.appendSwitch('expose-gc');
+app.commandLine.appendSwitch('js-flags', '--expose-gc');
 
 // 命令行 --safe-mode / --disable-gpu 或存在 .disable-gpu 标记文件时禁用 GPU 加速
 const shouldDisableGpu = forceDisableGpu || safeMode || require('fs').existsSync(disableGpuFile);
@@ -1046,6 +1071,11 @@ async function _performShutdownCleanup() {
 // 注意：will-quit 中不能做异步操作，只能同步清理
 app.on('will-quit', (event) => {
   try {
+    // 清理空闲内存优化定时器
+    if (_idleTrimTimer) {
+      clearInterval(_idleTrimTimer);
+      _idleTrimTimer = null;
+    }
     // 同步清理终端会话（防止 before-quit 没跑完）
     if (typeof cleanupTerminals === 'function') cleanupTerminals();
     try { if (typeof cleanupServerHost === 'function') cleanupServerHost(); } catch (e) {}
@@ -1145,6 +1175,6 @@ const { registerModsIPC } = require('./main/mods-ipc');
 // IS_BETA 占位符 - 在构建时由 generate-integrity.js 替换为 true/false。
 // 保留在 main.js 中（构建脚本只处理 main.js），通过 updaterModule.setup 注入到 updater.js。
 // 使用构建时占位符替换可避免运行时环境检测的误判（beta.flag 曾被错误打包到正式版）。
-let IS_BETA = (() => { try { return __IS_BETA__; } catch (_) { return false; } })();
+let IS_BETA = (() => { try { return false; } catch (_) { return false; } })();
 
 /* @versepc-protected: anti-ai-plagiarism-v1.0 */
