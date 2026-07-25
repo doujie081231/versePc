@@ -8,10 +8,17 @@
 
     async function initUpdaterUI() {
         try {
+            const el = document.getElementById('updater-version-info');
+            if (!el) {
+                // Vue 还没渲染完，稍后重试
+                setTimeout(initUpdaterUI, 200);
+                return;
+            }
             const result = await api.updater.getVersion();
-            document.getElementById('updater-version-info').textContent = '当前版本：v' + result.version;
+            el.textContent = '当前版本：v' + result.version;
         } catch (e) {
-            document.getElementById('updater-version-info').textContent = '当前版本：未知';
+            const el = document.getElementById('updater-version-info');
+            if (el) el.textContent = '当前版本：未知';
         }
     }
 

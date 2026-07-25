@@ -1,8 +1,18 @@
 function setupJavaPage() {
-    document.getElementById('refresh-java-btn').addEventListener('click', loadInstalledJava);
-    document.getElementById('add-manual-java-btn').addEventListener('click', browseManualJava);
-    document.getElementById('import-archive-btn').addEventListener('click', () => browseImportJava('archive'));
-    document.getElementById('import-directory-btn').addEventListener('click', () => browseImportJava('directory'));
+    // 确保 Vue 已挂载 Java 页面模板，否则等下一帧再试
+    const refreshBtn = document.getElementById('refresh-java-btn');
+    if (!refreshBtn) {
+        // Vue 还没渲染完，稍后重试
+        setTimeout(setupJavaPage, 100);
+        return;
+    }
+    refreshBtn.addEventListener('click', loadInstalledJava);
+    const manualBtn = document.getElementById('add-manual-java-btn');
+    if (manualBtn) manualBtn.addEventListener('click', browseManualJava);
+    const importArchiveBtn = document.getElementById('import-archive-btn');
+    if (importArchiveBtn) importArchiveBtn.addEventListener('click', () => browseImportJava('archive'));
+    const importDirBtn = document.getElementById('import-directory-btn');
+    if (importDirBtn) importDirBtn.addEventListener('click', () => browseImportJava('directory'));
 
     loadInstalledJava();
     loadJavaDownloadList();
@@ -10,10 +20,19 @@ function setupJavaPage() {
 
 async function loadInstalledJava() {
     const listEl = document.getElementById('installed-java-list');
+    if (!listEl) return;
     listEl.innerHTML = '<div class="loading">正在检测Java...</div>';
 
     try {
         const result = await API.getInstalledJava();
+
+        // 后台仍在检测中，保持"正在检测"并稍后自动刷新
+        if (result.detecting) {
+            listEl.innerHTML = '<div class="loading">正在检测Java...</div>';
+            setTimeout(loadInstalledJava, 2000);
+            return;
+        }
+
         const currentPath = (result.currentJavaPath || '').toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
 
         if (result.java.length === 0) {

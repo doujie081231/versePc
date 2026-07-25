@@ -7,6 +7,13 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { Worker } = require('worker_threads');
+// 主进程同步检测的回退方案（worker 失败时使用）
+let _javaDetectSync = null;
+try {
+  _javaDetectSync = require('../../java/java-detect');
+} catch (e) {
+  console.warn('[Java] 无法加载 java-detect 回退模块:', e.message);
+}
 
 module.exports = {
   /**
@@ -44,11 +51,16 @@ module.exports = {
 
         function addJavaEntry(javaExe, source) {
           try {
-            if (seen.has(javaExe)) return;
+            // 规范化路径去重
+            const norm = javaExe.toLowerCase().replace(/\\\\/g, '/').replace(/\\/$/, '').replace(/\/$/, '');
+            if (seen.has(norm)) return;
             if (!fs.existsSync(javaExe)) return;
-            seen.add(javaExe);
+            seen.add(norm);
 
             const javaHome = path.dirname(path.dirname(javaExe));
+            // 排除 FinalShell、Paranoia 等携带 JDK 的非 Java 工具
+            if (javaExe.toLowerCase().includes('finalshell') || javaExe.toLowerCase().includes('paranoia')) return;
+
             let version = '';
             let majorVersion = 0;
             let minorVersion = 0;
@@ -63,8 +75,12 @@ module.exports = {
                   version = m[1];
                   if (version.startsWith('1.')) {
                     majorVersion = parseInt(version.split('.')[1], 10);
+                    const upd = version.match(/_(\d+)/);
+                    if (upd) minorVersion = parseInt(upd[1], 10);
                   } else {
                     majorVersion = parseInt(version.split('.')[0], 10);
+                    const minorPart = version.split('.')[1];
+                    if (minorPart) minorVersion = parseInt(minorPart, 10) || 0;
                   }
                 }
               }
@@ -79,8 +95,12 @@ module.exports = {
                   version = m[1];
                   if (version.startsWith('1.')) {
                     majorVersion = parseInt(version.split('.')[1], 10);
+                    const upd = version.match(/_(\d+)/);
+                    if (upd) minorVersion = parseInt(upd[1], 10);
                   } else {
                     majorVersion = parseInt(version.split('.')[0], 10);
+                    const minorPart = version.split('.')[1];
+                    if (minorPart) minorVersion = parseInt(minorPart, 10) || 0;
                   }
                 }
               } catch (e) {}
@@ -121,8 +141,8 @@ module.exports = {
                 if (fs.existsSync(javaExe)) addJavaEntry(javaExe, 'system');
                 continue;
               }
-              const kws = ['java','jdk','jre','jvm','runtime','adopt','temurin','corretto','zulu','openjdk','graalvm','liberica','microsoft','amazon','sapmachine','dragonwell','bisheng'];
-              const isJavaDir = kws.some((kw) => dirName.includes(kw)) || /^jdk[-_]?\\d/i.test(dirName) || /^jre[-_]?\\d/i.test(dirName);
+              const kws = ['java','jdk','jre','jvm','runtime','adopt','temurin','corretto','zulu','openjdk','graalvm','liberica','microsoft','amazon','sapmachine','dragonwell','bisheng','windows-x64','windows-arm64','windows-x86','bellsoft'];
+              const isJavaDir = kws.some((kw) => dirName.includes(kw)) || /^jdk[-_]?\\d/i.test(dirName) || /^jre[-_]?\\d/i.test(dirName) || /^\\d+([._]\\d+)*$/i.test(dirName);
               if (isJavaDir) {
                 const javaExe = path.join(fullPath, 'bin', javaExeName);
                 if (fs.existsSync(javaExe)) addJavaEntry(javaExe, 'system');
@@ -132,6 +152,7 @@ module.exports = {
           } catch (e) {}
         }
 
+        // 1. 环境变量 JAVA_HOME / JDK_HOME
         if (process.env.JAVA_HOME) {
           const javaHome = process.env.JAVA_HOME.replace(/["']/g, '').replace(/\\\\$/, '').replace(/\\/$/, '');
           addJavaEntry(path.join(javaHome, 'bin', javaExeName), 'system');
@@ -141,21 +162,153 @@ module.exports = {
           addJavaEntry(path.join(javaHome, 'bin', javaExeName), 'system');
         }
 
+        // 2. PATH 中的 java
+        if (process.env.PATH) {
+          const pathDirs = process.env.PATH.split(path.delimiter);
+          for (const dir of pathDirs) {
+            const trimmed = dir.trim().replace(/["']/g, '');
+            if (!trimmed) continue;
+            const javaExe = path.join(trimmed, javaExeName);
+            if (fs.existsSync(javaExe)) addJavaEntry(javaExe, 'system');
+            // 若 PATH 条目含 java/jdk 关键词，父目录也可能是 Java 目录
+            if (trimmed.toLowerCase().includes('java') || trimmed.toLowerCase().includes('jdk')) {
+              const parentJavaExe = path.join(path.dirname(trimmed), 'bin', javaExeName);
+              addJavaEntry(parentJavaExe, 'system');
+            }
+          }
+        }
+
         if (isWin) {
+          // 3. 注册表 HKLM\\SOFTWARE\\JavaSoft
           try {
-            const out = execSync('where java 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true });
-            out.split(/\\r?\\n/).forEach((line) => {
+            const regOut = execSync('reg query "HKLM\\\\SOFTWARE\\\\JavaSoft\\\\Java Runtime Environment" /s 2>nul || reg query "HKLM\\\\SOFTWARE\\\\JavaSoft\\\\JDK" /s 2>nul || reg query "HKLM\\\\SOFTWARE\\\\JavaSoft\\\\Java Development Kit" /s 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            const homeMatches = regOut.matchAll(/JavaHome\\s+REG_SZ\\s+(.+)/gi);
+            for (const m of homeMatches) {
+              addJavaEntry(path.join(m[1].trim(), 'bin', 'java.exe'), 'system');
+            }
+          } catch (e) {}
+          try {
+            const regOut = execSync('reg query "HKLM\\\\SOFTWARE\\\\Wow6432Node\\\\JavaSoft\\\\Java Runtime Environment" /s 2>nul || reg query "HKLM\\\\SOFTWARE\\\\Wow6432Node\\\\JavaSoft\\\\JDK" /s 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            const homeMatches = regOut.matchAll(/JavaHome\\s+REG_SZ\\s+(.+)/gi);
+            for (const m of homeMatches) {
+              addJavaEntry(path.join(m[1].trim(), 'bin', 'java.exe'), 'system');
+            }
+          } catch (e) {}
+
+          // 4. Program Files 搜索常见 Java 目录名
+          const programFiles = process.env['ProgramFiles'] || 'C:\\\\Program Files';
+          const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\\\Program Files (x86)';
+          for (const pf of [programFiles, programFilesX86]) {
+            if (fs.existsSync(pf)) {
+              try {
+                fs.readdirSync(pf).forEach(function(d) {
+                  const dl = d.toLowerCase();
+                  if (['java','jdk','jre','adopt','temurin','corretto','zulu','amazon','microsoft','sapmachine','bellsoft','graalvm','dragonwell'].some(function(kw) { return dl.includes(kw); })) {
+                    searchFolder(path.join(pf, d), 2);
+                  }
+                });
+              } catch (e) {}
+            }
+          }
+
+          // 5. AppData / LocalAppData
+          const appData = process.env['APPDATA'] || '';
+          const localAppData = process.env['LOCALAPPDATA'] || '';
+          const userProfile = process.env['USERPROFILE'] || '';
+          if (appData) searchFolder(appData, 2);
+          if (localAppData) searchFolder(localAppData, 2);
+
+          // 6. Minecraft 自带 runtime
+          if (appData) {
+            const mcRuntime = path.join(appData, '.minecraft', 'runtime');
+            if (fs.existsSync(mcRuntime)) searchFolder(mcRuntime, 3);
+          }
+
+          // 7. where java
+          try {
+            const whereOut = execSync('where java 2>nul', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            whereOut.split(/\\r?\\n/).filter(function(l) { return l.trim(); }).forEach(function(line) {
               const p = line.trim();
               if (p && fs.existsSync(p)) addJavaEntry(p, 'system');
             });
           } catch (e) {}
-          const commonDirs = [
-            'C:\\\\Program Files\\\\Java', 'C:\\\\Program Files (x86)\\\\Java',
-            'C:\\\\Program Files\\\\Eclipse Adoptium', 'C:\\\\Program Files\\\\Amazon Corretto',
-            'C:\\\\Program Files\\\\Zulu', 'C:\\\\Program Files\\\\Microsoft'
+
+          // 8. JetBrains Toolbox JBR
+          if (localAppData) {
+            searchFolder(path.join(localAppData, 'JetBrains', 'Toolbox', 'apps', 'JBR'), 3);
+          }
+          if (programFiles) {
+            searchFolder(path.join(programFiles, 'JetBrains'), 3);
+          }
+
+          // 9. 额外常见路径（不做全盘扫描，避免超时）
+          var additionalPaths = [
+            path.join(userProfile, 'Java'),
+            path.join(userProfile, '.jdks'),
+            path.join(localAppData, 'Programs'),
+            path.join(userProfile, 'scoop', 'apps', 'openjdk'),
+            'C:\\\\ProgramData\\\\Oracle\\\\Java',
+            path.join(appData, '.hmcl', 'runtime'),
+            path.join(localAppData, 'BakaXL', 'JavaRuntime'),
+            path.join(appData, '.minecraft', 'runtime')
           ];
-          commonDirs.forEach((d) => searchFolder(d, 3));
+          // 各盘符根目录下只读一层（不递归全盘）
+          try {
+            var drives = execSync('wmic logicaldisk get caption /value 2>nul', { encoding: 'utf8', timeout: 3000, windowsHide: true });
+            var driveMatches = drives.matchAll(/Caption=(\\w:)/gi);
+            for (var dm of driveMatches) {
+              var root = dm[1] + '\\\\';
+              additionalPaths.push(root);
+            }
+          } catch (e) {}
+          for (var ap = 0; ap < additionalPaths.length; ap++) {
+            var sp = additionalPaths[ap];
+            try {
+              if (sp && fs.existsSync(sp)) {
+                // 只在根目录下找名为 java/jdk/jre 的子目录，不深度递归整个盘
+                fs.readdirSync(sp).forEach(function(d) {
+                  var dl = d.toLowerCase();
+                  if (['java', 'jdk', 'jre', 'runtime', 'jdks'].some(function(kw) { return dl === kw || dl === kw + 's'; }) || dl.indexOf('java') === 0 || dl.indexOf('jdk') === 0) {
+                    searchFolder(path.join(sp, d), 2);
+                  }
+                });
+              }
+            } catch (e) {}
+          }
         }
+
+        // macOS
+        if (!isWin) {
+          var homeDir = process.env.HOME || '~';
+          var macPaths = [
+            '/Library/Java/JavaVirtualMachines',
+            '/opt/homebrew/opt',
+            '/opt/homebrew/Cellar',
+            '/usr/local/opt',
+            path.join(homeDir, '.sdkman', 'candidates', 'java'),
+            path.join(homeDir, '.jdks'),
+            path.join(homeDir, 'Library', 'Java', 'JavaVirtualMachines'),
+            path.join(homeDir, '.minecraft', 'runtime'),
+          ];
+          for (var mi = 0; mi < macPaths.length; mi++) {
+            if (fs.existsSync(macPaths[mi])) searchFolder(macPaths[mi], 3);
+          }
+          try {
+            var jhOut = execSync('/usr/libexec/java_home -V 2>&1', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            var jhMatches = jhOut.matchAll(/"([^"]+)"\\s+\\(([^)]+)\\)/g);
+            for (var jhm of jhMatches) {
+              addJavaEntry(path.join(jhm[1], 'bin', 'java'), 'system');
+            }
+          } catch (e) {}
+          try {
+            var whichOut = execSync('which -a java 2>/dev/null', { encoding: 'utf8', timeout: 5000, windowsHide: true });
+            whichOut.split('\\n').filter(function(l) { return l.trim(); }).forEach(function(line) {
+              var p = line.trim();
+              if (p && fs.existsSync(p)) addJavaEntry(p, 'system');
+            });
+          } catch (e) {}
+        }
+
         return results;
       }
 
@@ -198,6 +351,20 @@ module.exports = {
           const bundledDir = path.join(workerData.appRoot, 'runtime');
           bundledJava = detectBundledJava(bundledDir);
         } catch (e) {}
+        // 也搜索数据目录中已下载的 Java 运行时
+        try {
+          if (workerData.dataDir) {
+            const dataRuntime = path.join(workerData.dataDir, 'runtime');
+            if (fs.existsSync(dataRuntime)) {
+              const dataJava = detectBundledJava(dataRuntime);
+              for (const dj of dataJava) {
+                if (!bundledJava.some(function(b) { return b.path === dj.path; })) {
+                  bundledJava.push(dj);
+                }
+              }
+            }
+          }
+        } catch (e) {}
         const allJava = [...bundledJava, ...systemJava];
         parentPort.postMessage({
           success: true,
@@ -216,9 +383,10 @@ module.exports = {
       return new Promise((resolve) => {
         try {
           const appRoot = path.join(__dirname, '..', '..', '..', '..');
+          const dataDir = ctx.dirs ? ctx.dirs.DATA_DIR : '';
           const worker = new Worker(_javaDetectWorkerScript, {
             eval: true,
-            workerData: { appRoot }
+            workerData: { appRoot, dataDir }
           });
           let settled = false;
           const timeout = setTimeout(() => {
@@ -253,14 +421,42 @@ module.exports = {
       if (_javaDetecting) return;
       _javaDetecting = true;
       _detectJavaAsync().then((result) => {
-        if (result && result.success) {
+        if (result && result.success && result.javaList && result.javaList.length > 0) {
           _javaDetectCache = result;
+        } else {
+          // Worker 失败或返回空列表：回退到主进程同步检测
+          console.warn('[Java] worker 检测失败或为空，回退到同步检测');
+          try {
+            if (_javaDetectSync) {
+              const syncList = _javaDetectSync.detectSystemJava();
+              let bundled = [];
+              try {
+                const appRoot = path.join(__dirname, '..', '..', '..', '..');
+                bundled = _javaDetectSync.detectBundledJava(path.join(appRoot, 'runtime'));
+              } catch (e) {}
+              const allJava = [...bundled, ...syncList];
+              _javaDetectCache = {
+                success: true,
+                platform: process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux'),
+                javaList: allJava,
+                hasJava: allJava.length > 0,
+                hasJava17: allJava.some((j) => j.majorVersion >= 17),
+                hasJava21: allJava.some((j) => j.majorVersion >= 21)
+              };
+              console.log('[Java] 同步回退检测完成，找到', allJava.length, '个 Java');
+            } else {
+              _javaDetectCache = result || { success: true, javaList: [], hasJava: false };
+            }
+          } catch (e) {
+            console.error('[Java] 同步回退检测也失败:', e.message);
+            _javaDetectCache = result || { success: true, javaList: [], hasJava: false };
+          }
         }
         _javaDetecting = false;
         // 通知所有等待中的请求
         while (_javaDetectWaiters.length > 0) {
           const waiter = _javaDetectWaiters.shift();
-          waiter(result);
+          waiter(_javaDetectCache);
         }
       });
     }
@@ -498,30 +694,47 @@ module.exports = {
       sendJSON(res, { success: true, message: '已取消Java下载' });
     });
 
-    /* /api/java/installed - 返回已安装 Java 列表（含自定义 Java 与当前使用路径） */
-    registerRoute('GET', '/api/java/installed', async (req, res, parsedUrl) => {
-      try {
-        const systemJava = java.detectSystemJava();
-        const bundledJava = java.detectBundledJava();
-        const customJava = java.detectCustomJava();
-        const allJava = [...bundledJava, ...systemJava, ...customJava];
+    /* /api/java/installed - 返回已安装 Java 列表（含自定义 Java 与当前使用路径）
+         * 复用 /api/java/detect 的 worker_thread 异步缓存结果，避免同步检测卡住 server.js
+         */
+        registerRoute('GET', '/api/java/installed', async (req, res, parsedUrl) => {
+          try {
+            // 复用异步缓存的检测结果
+            let javaList = [];
+            let detecting = false;
+            if (_javaDetectCache && _javaDetectCache.javaList) {
+              javaList = _javaDetectCache.javaList;
+            } else if (_javaDetecting) {
+              // 缓存正在构建中，等待完成
+              detecting = true;
+              const result = await new Promise((resolve) => {
+                _javaDetectWaiters.push(resolve);
+              });
+              if (result && result.javaList) javaList = result.javaList;
+              detecting = false;
+            } else {
+              // 无缓存且未检测：立即触发后台检测，返回 detecting 标志
+              _refreshJavaCacheInBackground();
+              detecting = true;
+            }
 
-        // 读取当前使用的 Java 路径供前端标记「当前使用」
-        let currentJavaPath = '';
-        try {
-          const settings = accounts.loadSettingsCached();
-          currentJavaPath = settings.javaPath || '';
-        } catch (e) {}
+            // 读取当前使用的 Java 路径供前端标记「当前使用」
+            let currentJavaPath = '';
+            try {
+              const settings = accounts.loadSettingsCached();
+              currentJavaPath = settings.javaPath || '';
+            } catch (e) {}
 
-        sendJSON(res, {
-          java: allJava,
-          total: allJava.length,
-          currentJavaPath: currentJavaPath
+            sendJSON(res, {
+              java: javaList,
+              total: javaList.length,
+              currentJavaPath: currentJavaPath,
+              detecting: detecting
+            });
+          } catch (e) {
+            sendError(res, '获取已安装Java列表失败: ' + e.message);
+          }
         });
-      } catch (e) {
-        sendError(res, '获取已安装Java列表失败: ' + e.message);
-      }
-    });
 
     /* /api/java/configure-env - 配置 JAVA_HOME 与 PATH 环境变量 */
     registerRoute('POST', '/api/java/configure-env', async (req, res, parsedUrl) => {

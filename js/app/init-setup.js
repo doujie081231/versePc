@@ -89,7 +89,6 @@ async function init() {
     safeSetup('favSearch', setupFavSearchListeners);
     // 设置页面初始化（轻量 UI 绑定，不涉及网络请求）
     safeSetup('settingsPage', setupSettingsPage);
-    safeSetup('javaPage', setupJavaPage);
     safeSetup('console', setupConsole);
     setProgress(40, '正在准备主页...');
 
@@ -109,6 +108,8 @@ async function init() {
   // 阶段1：等 Vue 挂载完成（在 splash 覆盖下，用户看不到卡顿）
   setProgress(55, '正在加载界面...');
   await _waitForVueMount();
+  // Vue 挂载完成后再绑定 Java 页面事件，避免元素不存在
+  try { setupJavaPage(); } catch (e) { console.error('Setup failed: javaPage', e); }
 
   // 阶段2：加载核心数据（仍在 splash 覆盖下）
   setProgress(75, '正在加载数据...');

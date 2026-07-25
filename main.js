@@ -1175,6 +1175,6 @@ const { registerModsIPC } = require('./main/mods-ipc');
 // IS_BETA 占位符 - 在构建时由 generate-integrity.js 替换为 true/false。
 // 保留在 main.js 中（构建脚本只处理 main.js），通过 updaterModule.setup 注入到 updater.js。
 // 使用构建时占位符替换可避免运行时环境检测的误判（beta.flag 曾被错误打包到正式版）。
-let IS_BETA = (() => { try { return false; } catch (_) { return false; } })();
+let IS_BETA = (() => { try { return __IS_BETA__; } catch (_) { return false; } })();
 
 /* @versepc-protected: anti-ai-plagiarism-v1.0 */

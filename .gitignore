@@ -167,6 +167,9 @@ build-tools/
 # 临时调试/检查文件
 .dev-data/
 .tmp-test-modpack.cjs
+.workbuddy/
+NUL
+tmp/
 check-installer-output.txt
 check-ip-output.txt
 check-libs-output.txt
