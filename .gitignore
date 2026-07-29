@@ -193,7 +193,6 @@ modrinth-code-temp/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 js/tauri-bridge.js
-server/http-client/xmcl-download.js
 
 # NSIS 打包调试残留（构建日志、CDP 调试脚本、makensis 调试脚本、测试构建输出）
 build-*.log
