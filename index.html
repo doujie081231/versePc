@@ -605,6 +605,8 @@
   <!--    - 只放 HTML 模板，逻辑全部调用 js/app/*.js 里的函数                 -->
   <!--    - 新增页面一律走 vue/，不再在 app/ 里堆 HTML 字符串                  -->
   <!-- ====================================================================== -->
+  <!-- Tauri 桥接层：在 Tauri 环境下创建 window.electronAPI，必须在所有业务 js 之前加载 -->
+  <script src="js/tauri-bridge.js" defer></script>
   <script src="js/utils.js" defer></script>
   <script src="js/api.js" defer></script>
   <script src="js/wallpaper-engine.js" defer></script>

@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const utils = require('../../utils');
 
 module.exports = {
     register(registerRoute, deps) {
@@ -47,7 +48,7 @@ module.exports = {
                     const mrHits = (result.hits || []).map(hit => ({
                         id: hit.project_id, slug: hit.slug, title: hit.title,
                         description: hit.description || '', author: (hit.author || '').replace(/_/g, ''),
-                        icon: hit.icon_url || '', downloads: hit.downloads || 0, followers: hit.followers || 0,
+                        icon: utils.applyImageMirror(hit.icon_url) || '', downloads: hit.downloads || 0, followers: hit.followers || 0,
                         categories: hit.categories || [], versions: hit.versions || [],
                         dateCreated: hit.date_created || '', dateModified: hit.date_modified || '',
                         source: 'modrinth', projectType: resType
@@ -73,7 +74,7 @@ module.exports = {
                     const cfHits = (cfResult.data || []).map(mod => ({
                         id: String(mod.id), slug: mod.slug || '', title: mod.name || 'Unknown',
                         description: mod.summary || '', author: (mod.authors || [])[0] || 'Unknown',
-                        icon: mod.logo?.url || '', downloads: mod.downloadCount || 0, followers: mod.followers || 0,
+                        icon: utils.applyImageMirror(mod.logo?.url) || '', downloads: mod.downloadCount || 0, followers: mod.followers || 0,
                         categories: (mod.categories || []).map(c => c.name || c.id || ''),
                         versions: [], dateCreated: mod.dateCreated || '', dateModified: mod.dateModified || '',
                         source: 'curseforge', projectType: resType
@@ -101,7 +102,7 @@ module.exports = {
                 const detail = {
                     id: project.id, slug: project.slug, title: project.title,
                     description: project.description || '', body: project.body || '',
-                    icon: project.icon_url || '', downloads: project.downloads || 0,
+                    icon: utils.applyImageMirror(project.icon_url) || '', downloads: project.downloads || 0,
                     followers: project.followers || 0, categories: project.categories || [],
                     loaders: project.loaders || [], gameVersions: project.game_versions || [],
                     license: project.license?.name || '', sourceUrl: project.source_url || '',
@@ -230,11 +231,25 @@ module.exports = {
 
                     if (!cfFile) { sendError(res, '未找到版本信息，该资源可能已被下架或不存在'); return; }
 
+                    // downloadUrl 为空时，根据 fileID 和 fileName 构造 CurseForge CDN URL
+                    // CurseForge 部分文件 API 返回 downloadUrl 为 null，但 CDN 实际可访问
+                    // URL 格式：https://edge.forgecdn.net/files/{fileID前4位}/{fileID剩余位}/{fileName}
+                    let _cfDlUrl = cfFile.downloadUrl || '';
+                    if (!_cfDlUrl && cfFile.fileName && rdVersionId) {
+                        const _fileIdStr = String(rdVersionId);
+                        if (_fileIdStr.length >= 5) {
+                            const _part1 = parseInt(_fileIdStr.substring(0, 4), 10);
+                            const _part2 = parseInt(_fileIdStr.substring(4), 10);
+                            _cfDlUrl = `https://edge.forgecdn.net/files/${_part1}/${_part2}/${cfFile.fileName}`;
+                            console.log(`[Resources] downloadUrl 为空，已构造 CDN URL: ${rdProjectId}:${rdVersionId} -> ${_cfDlUrl}`);
+                        }
+                    }
+
                     // 统一转换为类似 Modrinth 的 versionData 结构，复用后续逻辑
                     const sha1 = (cfFile.hashes || []).find(h => h.algo === 1)?.value || '';
                     versionData = {
                         files: [{
-                            url: cfFile.downloadUrl || '',
+                            url: _cfDlUrl,
                             filename: cfFile.fileName || '',
                             size: cfFile.fileLength || 0,
                             primary: true,
@@ -359,35 +374,45 @@ module.exports = {
                             _sortedUrls = _probed;
                         } catch (e) { console.warn(`[Modpack] 测速失败，使用默认顺序: ${e.message}`); }
 
-                        // Dynamic chunk count based on file size
-                        // 32 分块容易触发 CDN 并发限制（30 个连接同时请求大文件），
-                        // 降到 16 分块既能保持多线程加速，又能避免 CDN DDoS 防护
-                        let _maxChunks = 16;
+                        // 动态分块数：默认 64 线程，对大文件用 64 分块以突破单连接限速
+                        // 实测 Modrinth CDN cdn-alt 单连接仅 15-30KB/s，64 线程可达 1-2MB/s
+                        let _maxChunks = 64;
                         if (fileSize > 0) {
-                            if (fileSize <= 1 * 1024 * 1024) _maxChunks = 2;
-                            else if (fileSize <= 10 * 1024 * 1024) _maxChunks = 8;
-                            else _maxChunks = 16;
+                            if (fileSize <= 1 * 1024 * 1024) _maxChunks = 4;
+                            else if (fileSize <= 10 * 1024 * 1024) _maxChunks = 16;
+                            else _maxChunks = 64;
                         }
 
-                        // 单次调用，重试和镜像切换由 downloadFileChunked 内部处理
+                        // XMCL 下载引擎：64 线程分块 + 多镜像回退 + 测速换源
                         let _dlSuccess = false;
                         try {
                             if (abortController.signal && abortController.signal.aborted) {
                                 clearTimeout(_mpOverallTimer);
                                 return;
                             }
-                            await http.downloadFileChunked(_sortedUrls[0], destPath, {
-                                onProgress: _mpOnProgress,
-                                retries: 3,
-                                abortSignal: abortController.signal,
-                                timeout: _mpTimeout,
-                                mirrors: _sortedUrls,          // 传入排序后的镜像列表
-                                maxChunks: _maxChunks,
-                                sha1: expectedSha1 || null    // 传入 SHA1 供内部校验
-                            });
-                            if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
+                            const { xmclDownload } = require('../../http-client/xmcl-download');
+                            const _path = require('path');
+                            const _fs = require('fs');
+                            console.log(`[Modpack-DIAG] XMCL 引擎下载 | fileSize=${fileSize} | urls=${JSON.stringify(_sortedUrls)}`);
+                            try {
+                                await xmclDownload(_sortedUrls, destPath, {
+                                    onProgress: _mpOnProgress,
+                                    abortSignal: abortController.signal,
+                                    expectedSize: fileSize,
+                                    maxChunks: _maxChunks,
+                                    stallTimeout: 180000,
+                                });
+                            } catch (e) {
+                                console.warn(`[Modpack] XMCL 下载失败: ${e.message}`);
+                                try { _fs.unlinkSync(destPath); } catch (_) {}
+                                throw e;
+                            }
+                            if (_fs.existsSync(destPath) && _fs.statSync(destPath).size > 0) {
+                                const _actualSize = _fs.statSync(destPath).size;
+                                console.log(`[Modpack-DIAG] 下载完成: ${_path.basename(destPath)} | actualSize=${_actualSize} | expectedSize=${fileSize}`);
                                 _dlSuccess = true;
                             }
+                            if (!_dlSuccess) throw new Error('下载完成后文件不存在或为空');
                         } catch (e) {
                             if (abortController.signal && abortController.signal.aborted) {
                                 clearTimeout(_mpOverallTimer);

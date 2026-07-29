@@ -19,7 +19,7 @@ const { _isMirrorAvailable, _mirrorFailed, _mirrorSuccess, getMirrorUrls, probeM
 const { downloadFileH2 } = require('./download-h2');
 const { downloadFileChunked } = require('./download-chunked');
 const { _dlSingle } = require('./download-single');
-const { downloadFile, downloadFileSync, downloadFileSyncAsync, downloadFileToBuffer, downloadMultiChunk, downloadFileWithMirror } = require('./download');
+const { downloadFile, downloadFileSync, downloadFileSyncAsync, downloadFileToBuffer, downloadMultiChunk, downloadFileWithMirror, downloadFileRace } = require('./download');
 const { _tryRemoveFile } = require('./file-ops');
 
 module.exports = {
@@ -45,6 +45,7 @@ module.exports = {
   getMirrorUrl,
   downloadMultiChunk,
   downloadFileWithMirror,
+  downloadFileRace,
   fetchJSONWithMethod,
   fetchJSONWithAuth,
   _tryRemoveFile

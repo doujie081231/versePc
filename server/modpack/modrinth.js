@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file server/modpack/modrinth.js - Modrinth (.mrpack) 整合包导入
  * @description 解析 modrinth.index.json，安装基础版本与模组加载器，下载 mods 与 overrides。
  */
@@ -13,8 +13,7 @@ const http = require('../http-client');
 const versions = require('../versions');
 const modloaders = require('../modloaders');
 
-const { _dedupeVersionId, _cleanDownloadingResidue, isModpackPathSafe, _repairCorruptedModJars, relocateMisplacedResourcePacks, resolveConcurrency, computeModTimeout, createProgressUpdater, _downloadMissingModsCheckerFiles } = require('./shared');
-const { completeModpackDependencies } = require('./dep-completion');
+const { _dedupeVersionId, _cleanDownloadingResidue, isModpackPathSafe, _repairCorruptedModJars, relocateMisplacedResourcePacks, resolveConcurrency, computeModTimeout, createProgressUpdater, _saveModManifest } = require('./shared');
 
 /**
  * 导入 Modrinth (.mrpack) 整合包（解析 manifest、安装基础版本与加载器、下载 mods 与 overrides）。
@@ -537,6 +536,13 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     const overrideFiles = [];
     let extractYieldCounter = 0;
     let extractCount = 0;
+    // 先统计待解压文件总数，用于实时进度反馈
+    let _overrideTotal = 0;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const _n = entry.entryName;
+      if (_n.startsWith('overrides/') || _n.startsWith('client-overrides/')) _overrideTotal++;
+    }
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       const entryName = entry.entryName;
@@ -568,7 +574,12 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
           }
         }
         if (extractOk) { overrideFiles.push({ name: relPath, status: 'completed', progress: 100 }); extractCount++; }
-        if (++extractYieldCounter % 50 === 0) await utils.yieldToEventLoop();
+        // 实时进度反馈：每 50 个文件更新一次进度（40% → 50% 区间）
+        if (_overrideTotal > 0 && ++extractYieldCounter % 50 === 0) {
+          const _extractPct = 40 + Math.round((extractCount / _overrideTotal) * 10);
+          progress('extract', `解压覆盖文件... (${extractCount}/${_overrideTotal})`, _extractPct, [], '');
+          await utils.yieldToEventLoop();
+        }
       }
     }
     utils._writeImportLog(`<<< [步骤4/5] 解压完成: ${extractCount} 个文件, 耗时=${Math.round((Date.now() - _extractStartTime) / 1000)}s`);
@@ -603,13 +614,12 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     }
 
     try {
+      // 强制开启版本隔离，避免不同整合包 mods 目录共享冲突
       const vsPath = path.join(versionDir, 'version-settings.json');
       let vs = {};
       if (fs.existsSync(vsPath)) vs = JSON.parse(fs.readFileSync(vsPath, 'utf-8'));
-      if (!vs.isolation || vs.isolation === 'global') {
-        vs.isolation = 'on';
-        fs.writeFileSync(vsPath, JSON.stringify(vs, null, 2));
-      }
+      vs.isolation = 'on';
+      fs.writeFileSync(vsPath, JSON.stringify(vs, null, 2));
     } catch (_) {}
 
     const targetLoaders = new Set();
@@ -725,190 +735,27 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
         };
         const _modTimeout = computeModTimeout(fileSize);
 
-        for (const tryUrl of allUrls) {
-          if (downloaded || (abortSignal && abortSignal.aborted)) break;
-          try {
-            if (fileSize > 1 * 1024 * 1024) {
-              // [P0 OPT - 2026-07-21] 传入 mirrors 参数，让分块下载内部能做分块级 URL 切换
-              // 之前不传 mirrors，分块只用一个 URL，遇到慢 CDN 节点时所有分块都卡住
-              await http.downloadFileChunked(tryUrl, destPath, {
-                onProgress: _modOnProgress, retries: 2, timeout: _modTimeout,
-                abortSignal, agent: _modAgent, mirrors: allUrls
-              });
-            } else {
-              // [CRITICAL - 2026-06-21] retries必须>=2！之前是0，下载失败一次就放弃导致大量mod丢失。
-              // [P0 OPT - 2026-07-21] stallTimeout 从 45s 缩短到 15s，和分块下载保持一致
-              // 原因：90%+ 卡住的根因是最后几个 mod 卡在慢 CDN 节点，45s 等待太久
-              // 15s 足够避开短暂抖动，又能快速换 URL
-              await http._dlSingle(tryUrl, destPath, {
-                onProgress: _modOnProgress, retries: 3, abortSignal,
-                timeout: _modTimeout, stallTimeout: 15000, agent: _modAgent
-              });
-            }
-            if (utils.isJarIntact(destPath)) {
-              const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
-              if (expectedSha1) {
-                const actualSha1 = await utils.calculateSHA1(destPath);
-                if (actualSha1 === expectedSha1) { downloaded = true; }
-                else { console.warn(`[mrpack] SHA1校验失败: ${fileName}`); try { fs.unlinkSync(destPath); } catch (_) {} }
-              } else { downloaded = true; }
-            } else { try { fs.unlinkSync(destPath); } catch (_) {} }
-          } catch (e) {
-            if (abortSignal && abortSignal.aborted) break;
-            console.warn(`[mrpack] ${fileName} chunked失败 (${tryUrl.split('/').pop()}): ${e.message}`);
-          }
-        }
-
-        if (!downloaded && !(abortSignal && abortSignal.aborted)) {
-          for (const tryUrl of allUrls) {
-            if (downloaded || (abortSignal && abortSignal.aborted)) break;
-            try {
-              // [P0 OPT - 2026-07-21] stallTimeout 从 60s 缩短到 15s
-              await http._dlSingle(tryUrl, destPath, {
-                onProgress: _modOnProgress, retries: 0, abortSignal,
-                timeout: _modTimeout, stallTimeout: 15000, agent: _modAgent
-              });
-              if (utils.isJarIntact(destPath)) {
-                const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
-                if (expectedSha1) {
-                  const actualSha1 = await utils.calculateSHA1(destPath);
-                  if (actualSha1 === expectedSha1) { downloaded = true; }
-                  else { try { fs.unlinkSync(destPath); } catch (_) {} }
-                } else { downloaded = true; }
-              } else { try { fs.unlinkSync(destPath); } catch (_) {} }
-            } catch (e) {
-              if (abortSignal && abortSignal.aborted) break;
-              console.warn(`[mrpack] ${fileName} single失败: ${e.message}`);
-            }
-          }
-        }
-
-        if (!downloaded && !(abortSignal && abortSignal.aborted)) {
-          // 修复：支持从多种 Modrinth URL 格式中提取 projectID
-          // 格式1: cdn.modrinth.com/data/{projectId}/versions/{versionId}/{fileName}
-          // 格式2: modrinth.com/mod/{projectId}/version/{versionId}
-          // 格式3: api.modrinth.com/v2/project/{projectId}/version/{versionId}
-          const dlUrl = fileEntry.downloads?.[0] || '';
-          const projectId = dlUrl.match(/cdn\.modrinth\.com\/data\/([^\/]+)/)?.[1]
-            || dlUrl.match(/modrinth\.com\/mod\/([^\/]+)/)?.[1]
-            || dlUrl.match(/api\.modrinth\.com\/v2\/project\/([^\/]+)/)?.[1]
-            || fileEntry.modId || '';
-          const versionId = dlUrl.match(/\/versions\/([^\/]+)/)?.[1] || '';
-          if (projectId) {
-            try {
-              const loaderList = [...targetLoaders];
-              let apiRes = [];
-              if (loaderList.length > 0 && mcVersion) {
-                const qParams = `loaders=${JSON.stringify(loaderList)}&game_versions=${JSON.stringify([mcVersion])}`;
-                apiRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${projectId}/version?${qParams}`);
-              }
-              if (!apiRes || apiRes.length === 0) {
-                if (mcVersion) {
-                  apiRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${projectId}/version?game_versions=${JSON.stringify([mcVersion])}`);
-                }
-              }
-              if (!apiRes || apiRes.length === 0) {
-                apiRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${projectId}/version`);
-              }
-              if (apiRes && Array.isArray(apiRes) && apiRes.length > 0) {
-                for (const ver of apiRes) {
-                  if (downloaded) break;
-                  for (const f of (ver.files || [])) {
-                    if (downloaded) break;
-                    if (f.filename && f.filename === fileName && f.url) {
-                      try {
-                        await http._dlSingle(f.url, destPath, {
-                          onProgress: (p) => {
-                            if (p && modFiles[index]) {
-                              modFiles[index].progress = Math.round(p.progress || 0);
-                            }
-                            updateOverall();
-                          },
-                          retries: 2,
-                          abortSignal,
-                          timeout: 300000,
-                          agent: _modAgent
-                        });
-                        if (utils.isJarIntact(destPath)) {
-                          downloaded = true;
-                        } else {
-                          try { fs.unlinkSync(destPath); } catch (_) {}
-                        }
-                      } catch (_) {
-                        try { fs.unlinkSync(destPath); } catch (_) {}
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (apiErr) {
-              console.warn(`[mrpack] Modrinth API查询失败: ${apiErr.message}`);
-            }
-          }
-        }
-
-        if (!downloaded && !(abortSignal && abortSignal.aborted)) {
-          const searchName = fileName.replace(/[-_]\d+[\d._-]*\.jar$/, '').replace(/[-_]/g, ' ').trim();
-          if (searchName.length > 2) {
-            try {
-              const loaderList = [...targetLoaders];
-              const facets = [['project_type:mod']];
-              if (loaderList.length > 0) facets.push([`categories:${loaderList[0]}`]);
-              const searchRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/search?query=${encodeURIComponent(searchName)}&facets=${JSON.stringify(facets)}`);
-              if (searchRes && searchRes.hits && searchRes.hits.length > 0) {
-                for (const hit of searchRes.hits.slice(0, 3)) {
-                  if (downloaded) break;
-                  try {
-                    const loaderList2 = [...targetLoaders];
-                    let verRes = [];
-                    if (loaderList2.length > 0 && mcVersion) {
-                      verRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${hit.project_id}/version?loaders=${JSON.stringify(loaderList2)}&game_versions=${JSON.stringify([mcVersion])}`);
-                    }
-                    if (!verRes || verRes.length === 0) {
-                      verRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${hit.project_id}/version?game_versions=${JSON.stringify([mcVersion])}`);
-                    }
-                    if (!verRes || verRes.length === 0) {
-                      verRes = await http.fetchJSON(`${ctx.urls.MODRINTH_API}/project/${hit.project_id}/version`);
-                    }
-                    if (verRes && Array.isArray(verRes) && verRes.length > 0) {
-                      for (const ver of verRes) {
-                        if (downloaded) break;
-                        for (const f of (ver.files || [])) {
-                          if (downloaded) break;
-                          if (f.primary && f.url) {
-                            try {
-                              await http._dlSingle(f.url, destPath, {
-                                onProgress: (p) => {
-                                  if (p && modFiles[index]) modFiles[index].progress = Math.round(p.progress || 0);
-                                  updateOverall();
-                                },
-                                retries: 2,
-                                abortSignal,
-                                timeout: 300000,
-                                agent: _modAgent
-                              });
-                              if (utils.isJarIntact(destPath)) {
-                                downloaded = true;
-                              } else {
-                                try { fs.unlinkSync(destPath); } catch (_) {}
-                              }
-                            } catch (dlErr) {
-                              console.warn(`[mrpack] 搜索回退下载失败: ${f.filename} - ${dlErr.message}`);
-                              try { fs.unlinkSync(destPath); } catch (_) {}
-                            }
-                          }
-                        }
-                      }
-                    }
-                  } catch (verErr) {
-                    console.warn(`[mrpack] 获取 ${hit.slug} 版本失败: ${verErr.message}`);
-                  }
-                }
-              }
-            } catch (searchErr) {
-              console.warn(`[mrpack] 文件名搜索失败: ${searchName} - ${searchErr.message}`);
-            }
-          }
+        // 全量走 XMCL 引擎：64 线程分块 + 多镜像回退 + 测速换源
+        // XMCL 内部已处理多 URL 选择、慢速换源、stall 检测、307 重定向跟随
+        try {
+          const raceResult = await http.downloadFileRace(allUrls, destPath, {
+            onProgress: _modOnProgress,
+            retries: 2,
+            stallTimeout: 180000,
+            abortSignal,
+            timeout: _modTimeout
+          });
+          if (utils.isJarIntact(destPath)) {
+            const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
+            if (expectedSha1) {
+              const actualSha1 = await utils.calculateSHA1(destPath);
+              if (actualSha1 === expectedSha1) { downloaded = true; }
+              else { console.warn(`[mrpack] SHA1校验失败: ${fileName}`); try { fs.unlinkSync(destPath); } catch (_) {} }
+            } else { downloaded = true; }
+          } else { try { fs.unlinkSync(destPath); } catch (_) {} }
+        } catch (e) {
+          if (abortSignal && abortSignal.aborted) return;
+          console.warn(`[mrpack] ${fileName} XMCL 下载失败: ${e.message.substring(0, 100)}`);
         }
 
         if (downloaded) {
@@ -959,46 +806,42 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
       console.warn(`[mrpack] 失败的模组: ${failedNames}`);
     }
 
-    // 补全 CurseForge 独占文件（missing_mods_checker.json）
-    // 部分整合包（如 Better MC）在 Modrinth 发布时无法打包 CurseForge 独占文件，
-    // 通过 missing_mods_checker.json 列出，启动时会弹窗要求用户手动下载。
-    // 这里自动从 CurseForge API 下载补全，避免弹窗阻塞游戏启动。
-    let cfExtraWarning = '';
-    try {
-      utils._writeImportLog(`>>> [步骤5.5/5] 检查并补全 CurseForge 额外文件`);
-      const _cfExtraStart = Date.now();
-      const cfExtra = await _downloadMissingModsCheckerFiles(zip, versionDir, settings, progress, abortSignal);
-      utils._writeImportLog(`<<< [步骤5.5/5] CurseForge 补全完成: ${cfExtra.downloaded}下载 ${cfExtra.skipped}已存在 ${cfExtra.failed}失败, 耗时=${Math.round((Date.now() - _cfExtraStart) / 1000)}s`);
-      if (cfExtra.failed > 0) {
-        const failedNames = cfExtra.failedItems.map((i) => i.displayName).join(', ');
-        console.warn(`[mrpack] CurseForge 额外文件失败 ${cfExtra.failed}/${cfExtra.downloaded + cfExtra.skipped + cfExtra.failed}: ${failedNames}`);
-        cfExtraWarning = `${cfExtra.failed} 个 CurseForge 独占文件下载失败: ${failedNames}。游戏启动时可能会弹窗提示缺失这些文件。`;
-      }
-    } catch (cfErr) {
-      if (abortSignal && abortSignal.aborted) throw cfErr;
-      console.warn(`[mrpack] CurseForge 补全过程异常(非致命): ${cfErr.message}`);
-      utils._writeImportLog(`<<< [步骤5.5/5] CurseForge 补全异常: ${cfErr.message}`);
-    }
-
     progress('repair', '正在修复损坏的模组文件...', 88);
     const repairResult = await _repairCorruptedModJars(versionDir);
     if (repairResult.failed > 0) {
       console.warn(`[mrpack] ${repairResult.failed} 个模组文件损坏且无法修复，游戏启动时可能报错`);
     }
 
-    // 依赖补全：扫描所有 mod 的依赖声明，自动下载缺失的前置依赖
-    // 解决整合包作者漏写依赖 mod 导致游戏启动崩溃的问题
+    // 保存 mod-manifest.json，记录整合包模组清单
+    // 从 filesList 构造 manifestMods，包含 fileName/downloadUrl/sha1 等信息。
     try {
-      const _depLoader = fabricVer ? 'fabric' : (forgeVer ? 'forge' : (neoforgeVer ? 'neoforge' : 'forge'));
-      const depResult = await completeModpackDependencies(versionDir, mcVersion, _depLoader, settings, progress);
-      if (depResult.downloaded > 0) {
-        console.log(`[mrpack] 依赖补全: ${depResult.downloaded} 个缺失依赖已自动下载`);
+      const manifestMods = [];
+      for (const f of filesList) {
+        const downloads = f.downloads || [];
+        const fileName = path.basename(f.path || (downloads[0] || 'unknown'));
+        const modsFilePath = path.join(modsDir, fileName);
+        // 只记录 mods 目录下实际存在的 jar 文件
+        if (!fileName.toLowerCase().endsWith('.jar')) continue;
+        if (!fs.existsSync(modsFilePath)) continue;
+        // 从 JAR 解析 modId（用于后续校验内容是否被替换）
+        let modId = null;
+        try {
+          modId = utils.readJarModId(modsFilePath);
+        } catch (_) {}
+        manifestMods.push({
+          projectID: null,  // Modrinth 整合包没有 CurseForge projectID
+          fileID: null,
+          fileName,
+          downloadUrl: downloads[0] || '',
+          fileLength: f.fileSize || 0,
+          sha1: (f.hashes && f.hashes.sha1) || '',
+          modId
+        });
       }
-      if (depResult.failed > 0) {
-        console.warn(`[mrpack] 依赖补全: ${depResult.failed} 个依赖未找到: ${depResult.failedDeps.join(', ')}`);
-      }
-    } catch (depErr) {
-      console.warn(`[mrpack] 依赖补全过程异常(非致命): ${depErr.message}`);
+      _saveModManifest(versionDir, manifestMods);
+      console.log(`[mrpack] 已保存 mod-manifest.json: ${manifestMods.length} 个 mod`);
+    } catch (manifestErr) {
+      console.warn(`[mrpack] 保存 mod-manifest.json 失败(非致命): ${manifestErr.message}`);
     }
 
     if (loaderVersionId && mcVersion) {
@@ -1169,7 +1012,12 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
         versionId: manifest.versionId || '',
         name: manifest.name || packName,
         dependencies: manifest.dependencies || {},
-        files: (manifest.files || []).map((f) => ({
+        files: (manifest.files || []).filter((f) => {
+          // 只保留 mods 目录下实际存在的文件
+          if (!f.path) return true; // 非 mods 文件（如 shaderpacks）保留
+          const fp = path.join(versionDir, f.path);
+          return fs.existsSync(fp);
+        }).map((f) => ({
           path: f.path,
           hashes: f.hashes || {},
           downloads: f.downloads || [],
@@ -1200,10 +1048,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
     if (failCount > 0) {
       const failedModNames = modFiles.filter((m) => m.status === 'failed').map((m) => m.name).join(', ');
       const warningMsg = `${failCount}/${filesList.length} 个Mod下载失败: ${failedModNames}。请在内部浏览器中手动下载缺失的Mod，或检查网络后重试。`;
-      return { success: true, name: packName, versionId, mcVersion, targetVersion: targetVersion || '', warning: cfExtraWarning ? `${warningMsg} | ${cfExtraWarning}` : warningMsg, failedMods: modFiles.filter((m) => m.status === 'failed'), loaderVersionId: loaderVersionId || null };
-    }
-    if (cfExtraWarning) {
-      return { success: true, name: packName, versionId, mcVersion, targetVersion: targetVersion || '', warning: cfExtraWarning, loaderVersionId: loaderVersionId || null };
+      return { success: true, name: packName, versionId, mcVersion, targetVersion: targetVersion || '', warning: warningMsg, failedMods: modFiles.filter((m) => m.status === 'failed'), loaderVersionId: loaderVersionId || null };
     }
     return { success: true, name: packName, versionId, mcVersion, targetVersion: targetVersion || '', loaderVersionId: loaderVersionId || null };
   } catch (e) {

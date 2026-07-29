@@ -101,6 +101,8 @@ function _shLoaderChip(loader, ver) {
 }
 
 async function initServerHostPage() {
+  // 确保自定义下拉框已初始化（Vue 挂载后 DOM 才存在）
+  if (typeof initCustomSelects === 'function') initCustomSelects();
   _shBindEvents();
   await serverHostRefreshVersions();
   await serverHostRefreshList();
@@ -232,9 +234,12 @@ function _shUpdateActiveStatus(data) {
 }
 
 async function serverHostRefreshVersions() {
-  const sel = document.getElementById('server-host-version');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">加载中...</option>';
+  if (!customSelectInstances['server-host-version']) {
+    if (typeof initCustomSelects === 'function') initCustomSelects();
+  }
+  const inst = customSelectInstances['server-host-version'];
+  if (!inst) return;
+  inst.setOptions([{ value: '', text: '加载中...' }]);
   try {
     let installed = (typeof installedVersions !== 'undefined' && Array.isArray(installedVersions))
       ? installedVersions
@@ -245,7 +250,7 @@ async function serverHostRefreshVersions() {
     }
     _shVersions = Array.isArray(installed) ? installed.slice() : [];
     if (_shVersions.length === 0) {
-      sel.innerHTML = '<option value="">暂无已安装版本</option>';
+      inst.setOptions([{ value: '', text: '暂无已安装版本' }]);
       _shSetStatusText('没有找到已安装版本，请先在「下载」页安装版本。');
       return;
     }
@@ -262,21 +267,19 @@ async function serverHostRefreshVersions() {
       return { id, tag, pure };
     }).sort((a, b) => (b.pure - a.pure) || a.id.localeCompare(b.id, undefined, { numeric: true }));
 
-    sel.innerHTML = scored.map(({ id, tag }) => {
-      return `<option value="${escapeHtmlAttr(id)}">${escapeHtmlText(id)}（${tag}）</option>`;
-    }).join('');
+    inst.setOptions(scored.map(({ id, tag }) => ({ value: id, text: id + '（' + tag + '）' })));
     _shSetStatusText(`已加载 ${_shVersions.length} 个本地版本。模组端版本将自动识别并安装对应服务端。`);
     await serverHostDetectLoader();
   } catch (e) {
     console.error('[ServerHost] refresh versions failed:', e);
-    sel.innerHTML = '<option value="">加载失败</option>';
+    inst.setOptions([{ value: '', text: '加载失败' }]);
     _shSetStatusText('版本列表加载失败：' + (e.message || e));
   }
 }
 
 async function serverHostDetectLoader() {
   const hint = document.getElementById('server-host-loader-hint');
-  const versionId = (document.getElementById('server-host-version')?.value || '').trim();
+  const versionId = (getCustomSelectValue('server-host-version') || '').trim();
   if (!versionId) return;
   const api = _shApi();
   if (!api || !api.detectLoader) {
@@ -410,7 +413,7 @@ async function serverHostSelectActive() {
 }
 
 function _shGetCreateInputs() {
-  const versionId = (document.getElementById('server-host-version')?.value || '').trim();
+  const versionId = (getCustomSelectValue('server-host-version') || '').trim();
   const name = (document.getElementById('server-host-name')?.value || 'MyServer').trim() || 'MyServer';
   const port = parseInt(document.getElementById('server-host-port')?.value || '25565', 10) || 25565;
   const maxMem = parseInt(document.getElementById('server-host-mem')?.value || '2048', 10) || 2048;
@@ -436,6 +439,9 @@ async function serverHostCreate() {
   _shShowProgress(true, { progress: 2, text: '准备中…', indeterminate: true });
   const btn = document.getElementById('server-host-create-btn');
   if (btn) btn.disabled = true;
+  // 显示取消按钮
+  const cancelBtn = document.getElementById('server-host-cancel-btn');
+  if (cancelBtn) cancelBtn.style.display = '';
   try {
     const r = await api.create(opts);
     if (!r || !r.ok) {
@@ -459,6 +465,22 @@ async function serverHostCreate() {
   } finally {
     _shCreating = false;
     if (btn) btn.disabled = false;
+    if (cancelBtn) cancelBtn.style.display = 'none';
+  }
+}
+
+/** 取消正在进行的创建任务 */
+async function serverHostCancelCreate() {
+  const api = _shApi();
+  if (!api || !api.cancelCreate) return;
+  try {
+    await api.cancelCreate();
+    _shAppendConsole('[VersePC] 用户已取消创建', 'sys');
+    _shSetStatusText('已取消创建');
+    _shShowProgress(true, { progress: _shProgressValue, text: '已取消', indeterminate: false });
+    if (typeof showToast === 'function') showToast('已取消创建', 'info');
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('取消失败: ' + e.message, 'error');
   }
 }
 

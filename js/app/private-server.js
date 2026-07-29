@@ -604,25 +604,32 @@ function renderLobbyInner() {
     const onlineBadge = room.online
       ? `<span class="lobby-badge online" title="仅允许正版账户加入">仅正版</span>`
       : `<span class="lobby-badge offline" title="允许离线账户加入">允许离线</span>`;
+    // 版本信息：description 即为房主上传的版本描述（如 "1.20.1 / Fabric 0.15.7" 或 "1.21 / 原版"）
     const descHtml = desc ? `<div class="ps-card-desc">${desc}</div>` : '';
+    // 模组加载器标签：从 description 判断是否原版
+    let loaderBadge = '';
+    if (desc) {
+      if (/原版/.test(desc)) {
+        loaderBadge = `<span class="lobby-badge offline" title="原版房间，无模组加载器">原版</span>`;
+      } else {
+        loaderBadge = `<span class="lobby-badge online" title="该版本有模组加载器">有模组加载器</span>`;
+      }
+    }
     const addrHtml = fullAddr
       ? `<div class="ps-card-address" data-addr="${escapeHtml(fullAddr)}" title="点击复制">${escapeHtml(fullAddr)}</div>`
       : `<div class="ps-card-address" style="color:var(--text-muted)">端口信息缺失</div>`;
     const copyBtn = fullAddr
       ? `<button class="btn btn-primary btn-sm" data-copy="${escapeHtml(fullAddr)}">复制地址</button>`
       : '';
-    const modsBtn = `<button class="btn btn-ghost btn-sm" data-mods-id="${escapeHtml(String(room.id))}" data-mods-title="${title}">查看模组</button>`;
     return `
       <div class="ps-card lobby-card">
-        <img src="img/icon.svg" alt="" class="ps-card-icon" onerror="this.onerror=null;this.src='img/icon.svg';">
         <div class="ps-card-info">
-          <div class="ps-card-title">${title} ${onlineBadge}</div>
+          <div class="ps-card-title">${title} ${onlineBadge} ${loaderBadge}</div>
           ${addrHtml}
           ${descHtml}
         </div>
         <div class="ps-card-actions">
           ${copyBtn}
-          ${modsBtn}
         </div>
       </div>
     `;
@@ -686,14 +693,6 @@ function bindLobbyEvents(container) {
   // 复制地址按钮
   container.querySelectorAll('.lobby-card [data-copy]').forEach(btn => {
     btn.addEventListener('click', () => copyLobbyAddress(btn.dataset.copy));
-  });
-  // 查看模组
-  container.querySelectorAll('.lobby-card [data-mods-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.modsId;
-      const title = btn.dataset.modsTitle || '房间';
-      showLobbyModsModal(lobbyServerAddress, id, title);
-    });
   });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "versepc",
-  "version": "1.2.17",
+  "version": "1.3.0",
   "description": "VersePC - Minecraft Launcher",
   "author": {
     "name": "豆杰",
@@ -27,6 +27,8 @@
     "test": "node --test --test-force-exit test/*.js server/launch/*.test.js server/versions/*.test.js server/java/*.test.js server/crash-analyzer/*.test.js"
   },
   "dependencies": {
+    "@xmcl/file-transfer": "^2.1.2",
+    "@xmcl/task": "^4.1.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "adm-zip": "^0.5.17",

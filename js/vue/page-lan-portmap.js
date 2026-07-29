@@ -40,6 +40,12 @@ const PageLanPortmap = {
 
           <!-- 控制卡片 -->
           <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px;">
+            <!-- 当前版本（自动读取） -->
+            <div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">当前版本</div>
+              <div id="redstone-current-version" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-muted);font-size:14px;box-sizing:border-box">读取中...</div>
+            </div>
+
             <!-- 服务器循环按钮 -->
             <div style="margin-bottom:14px">
               <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">服务器节点</div>

@@ -12,6 +12,51 @@ const ctx = require('../context');
 const utils = require('../utils');
 const { safeRename, _tryRemoveFile } = require('./file-ops');
 
+// [DIAG - Size mismatch 调试] 把诊断日志写入文件，便于追踪
+const _diagLogPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.versepc', 'logs', 'dl-single-diag.log');
+function _diagLog(msg) {
+  try {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    fs.appendFileSync(_diagLogPath, line);
+  } catch (_) {}
+}
+
+/**
+ * 记录连接建立耗时，用于计算自适应超时
+ * @param {number} elapsedMs - 从 req 发出到收到 response headers 的时间
+ */
+function _recordConnectTime(elapsedMs) {
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return;
+  const samples = ctx.caches._connectTimeSamples;
+  samples.push(elapsedMs);
+  if (samples.length > ctx.caches._CONNECT_SAMPLES_MAX) samples.shift();
+  // 移动平均
+  const sum = samples.reduce((a, b) => a + b, 0);
+  ctx.caches._connectAvg = Math.round(sum / samples.length);
+}
+
+/**
+ * 计算自适应超时
+ * 基于最近连接平均耗时，慢源给更长超时，快源快速失败
+ * 公式：clamp(connectAvg * 4, 15s, 60s) * (1 + 失败次数 * 0.5)
+ * @param {number} failCount - 当前已失败次数（0 = 首次尝试）
+ * @param {number} [defaultTimeout=60000] - 默认超时（无样本时使用）
+ * @returns {number} 超时毫秒
+ */
+function _adaptiveTimeout(failCount = 0, defaultTimeout = 60000) {
+  const avg = ctx.caches._connectAvg || 1500;
+  // 首次尝试：基于平均连接耗时计算基础超时
+  // connectAvg 1.5s → base 6s（快源快速失败）
+  // connectAvg 5s   → base 20s（慢源给足时间）
+  // connectAvg 10s  → base 40s
+  let base = avg * 4;
+  // clamp 到 [15s, 60s]，避免极端值
+  base = Math.min(Math.max(base, 15000), 60000);
+  // 失败重试时按 1+0.5n 放宽，最多 2.5x
+  const multiplier = 1 + Math.min(failCount, 3) * 0.5;
+  return Math.round(base * multiplier);
+}
+
 /**
  * 单流下载：支持续传、SHA1 校验、JAR 完整性校验、stall 超时检测
  * @param {string} urlStr - 下载 URL
@@ -53,6 +98,12 @@ async function _dlSingle(urlStr, destPath, options = {}) {
         const mod = urlStr.startsWith('https') ? https : http;
         utils.ensureDir(destPath);
         const reqHeaders = { 'User-Agent': 'VersePC/2.0', 'Connection': 'keep-alive' };
+        // 自适应超时：基于最近连接平均耗时动态计算
+        // 失败次数 = retries - rc（已失败次数）
+        const failCount = retries - rc;
+        const adaptiveTimeoutMs = _adaptiveTimeout(failCount, timeout);
+        // 记录本次连接建立时间，用于更新统计
+        const attemptStartTime = Date.now();
         // 检测续传偏移：临时文件已存在且非空时从其大小续传
         let resumeOffset = 0;
         try {
@@ -64,9 +115,15 @@ async function _dlSingle(urlStr, destPath, options = {}) {
         if (resumeOffset > 0) {
           reqHeaders['Range'] = `bytes=${resumeOffset}-`;
         }
+        _diagLog(`ATTEMPT rc=${rc} url=${urlStr.substring(0,120)} resumeOffset=${resumeOffset} tmpPath=${path.basename(tmpPath)}`);
         let ws = null;
         let cleaned = false;
         let stallTimer = null;
+        // [关键修复 - 2026-07-27] 连接阶段 stall 计时器
+        // 问题：req.setTimeout 基于 socket idle，TCP keep-alive 包会阻止其触发，
+        //   导致服务器建立连接但不返回响应头时无限期卡住（Patchouli/YungsBetterStrongholds 卡 16 分钟）。
+        // 方案：独立的 setTimeout 计时器，不依赖 socket 状态，stallTimeout 内未收到 res 回调则 abort。
+        let connectStallTimer = null;
         // keepTmp=true 时保留临时文件供续传，keepTmp=false 时删除
         const clean = (keepTmp = false) => {
           if (cleaned) return;
@@ -75,6 +132,7 @@ async function _dlSingle(urlStr, destPath, options = {}) {
           if (!keepTmp) _tryRemoveFile(tmpPath);
           _tryRemoveFile(destPath);
           if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+          if (connectStallTimer) { clearTimeout(connectStallTimer); connectStallTimer = null; }
           // [P0 OPT - 2026-07-21] 清理低速检测计时器
           if (lowSpeedTimer) { clearInterval(lowSpeedTimer); lowSpeedTimer = null; }
         };
@@ -141,18 +199,38 @@ async function _dlSingle(urlStr, destPath, options = {}) {
           if (abortSignal.aborted) { currentAbortHandler(); return; }
           abortSignal.addEventListener('abort', currentAbortHandler, { once: true });
         }
-        resetStall();
+        // [关键修复 - 2026-07-27] 不再在 attempt 开始时启动 stall 检测
+        // 原因：stall 检测 (15-20s) 与 req.setTimeout (adaptiveTimeout 15-60s) 同时启动，
+        // adaptiveTimeout 总是先触发，调用 clean(true) 清除 stallTimer，导致 stall 检测
+        // 形同虚设。修改为：连接阶段由 req.setTimeout 管，数据传输阶段（res 回调后）才启动 stall。
         const req = mod.get(urlStr, { headers: reqHeaders, agent }, (res) => {
+          // 记录连接建立耗时（从请求发出到收到响应头）
+          _recordConnectTime(Date.now() - attemptStartTime);
           if (settled) { res.destroy(); return; }
           if (abortSignal && abortSignal.aborted) { res.destroy(); clean(false); doReject(new Error('下载已中止')); return; }
+          _diagLog(`RESP statusCode=${res.statusCode} contentLen=${res.headers['content-length']} contentRange=${res.headers['content-range']||''} location=${res.headers.location||''} url=${urlStr.substring(0,80)}`);
           // 3xx 重定向：递归请求新 URL
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             clean(false); // 重定向到新 URL，删除临时文件
             const nu = res.headers.location.startsWith('http') ? res.headers.location : new URL(res.headers.location, urlStr).toString();
+            _diagLog(`REDIRECT ${urlStr.substring(0,80)} -> ${nu.substring(0,120)} rc=${rc}`);
             return _dlSingle(nu, destPath, { onProgress, sha1, timeout, retries: rc, abortSignal, stallTimeout }).then(doResolve).catch(doReject);
           }
           // 206 = 续传成功，追加写入；200 = 服务器不支持续传，覆盖写入
           const isResume = (res.statusCode === 206 && resumeOffset > 0);
+          // [关键修复] 续传时收到 404：CurseForge CDN 不支持 Range 请求，返回 404 而非 416
+          // 此时删除临时文件，从头重试（递归调用 attempt）
+          if (res.statusCode === 404 && resumeOffset > 0) {
+            res.destroy();
+            clean(false); // 删除临时文件
+            if (rc > 0) {
+              console.warn(`[Single] 续传收到 404，从头重试: ${urlStr.substring(0, 60)}`);
+              setTimeout(() => attempt(rc - 1), 1000);
+              return;
+            }
+            doReject(new Error(`HTTP 404 for ${urlStr}`));
+            return;
+          }
           if (res.statusCode !== 200 && res.statusCode !== 206) { clean(false); doReject(new Error(`HTTP ${res.statusCode} for ${urlStr}`)); return; }
           // 服务器返回 200 而非 206 时，忽略续传偏移，从头下载
           if (resumeOffset > 0 && !isResume) {
@@ -162,12 +240,27 @@ async function _dlSingle(urlStr, destPath, options = {}) {
           const contentLen = parseInt(res.headers['content-length'] || '0', 10);
           const tSz = isResume ? (resumeOffset + contentLen) : contentLen;
           totalSize = tSz;  // 供低速检测访问
+          // [DIAG] 诊断 Size mismatch 问题：记录 content-length 和重定向信息
+          console.log(`[Single-DIAG] ${path.basename(destPath)} | url=${urlStr.substring(0, 80)} | status=${res.statusCode} | contentLen=${contentLen} | tSz=${tSz} | isResume=${isResume} | resumeOffset=${resumeOffset}`);
           let dl = resumeOffset;
           totalDownloaded = dl;
           ws = fs.createWriteStream(tmpPath, isResume ? { flags: 'a' } : {});
-          // [P0 OPT - 2026-07-21] 启动低速检测（独立于 stall 检测）
-          // stall 检测只检测"完全无数据"，低速检测检测"速度过低"
+          // [关键修复 - 2026-07-27] 连接已建立，启动 stall 检测和低速检测
+          // 之前在 attempt 开始时启动，被 req.setTimeout 抢先清除，导致 stall 检测失效。
+          // 现在改在 res 回调后启动，确保数据传输阶段 stall 能正确触发。
+          // 同时把 req.setTimeout 延长到 stallTimeout 的 2 倍，作为兜底（防止 stall 检测 bug 时卡死）
+          resetStall();
           startLowSpeedCheck();
+          // 数据传输阶段：socket 超时设为 stallTimeout 的 2 倍，让 stall 检测先触发
+          // 场景：stallTimeout=15s 时，socket 超时 30s。stall 在 15s 触发清理 + 重试，
+          // socket 超时永远不触发（除非 stall 检测 bug）。这样 adaptiveTimeout 不再抢先清除 stallTimer。
+          req.setTimeout(stallTimeout * 2 + 5000, () => {
+            try { req.destroy(); } catch (_) {}
+            clean(true); // 保留临时文件供续传
+            if (settled) return;
+            if (rc > 0) { setTimeout(() => attempt(rc - 1), 2000); }
+            else { doReject(new Error(`Socket timeout after response (stallTimeout=${stallTimeout}ms): ${urlStr}`)); }
+          });
           res.on('data', (ch) => {
             if (settled) { res.destroy(); return; }
             dl += ch.length;
@@ -188,6 +281,9 @@ async function _dlSingle(urlStr, destPath, options = {}) {
           ws.on('finish', async () => {
             try {
               if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+              // [DIAG] 诊断 Size mismatch：记录 finish 时的字节数
+              console.log(`[Single-DIAG-FINISH] ${path.basename(destPath)} | dl=${dl} | tSz=${tSz} | match=${dl === tSz} | rc=${rc}`);
+              _diagLog(`FINISH dl=${dl} tSz=${tSz} match=${dl===tSz} rc=${rc} tmpPathSize=${fs.existsSync(tmpPath)?fs.statSync(tmpPath).size:-1}`);
               // 等待文件描述符完全关闭后再 rename（Windows: 否则 EPERM 锁定源文件）
               await new Promise((resolve) => {
                 if (ws.destroyed) return resolve();
@@ -260,12 +356,14 @@ async function _dlSingle(urlStr, destPath, options = {}) {
           if (rc > 0) { setTimeout(() => attempt(rc - 1), Math.min(2000 + (retries - rc) * 1000, 8000)); }
           else { doReject(e); }
         });
-        req.setTimeout(timeout, () => {
+        // 自适应超时：替换固定 60s 超时
+        // 快源（avg 1s）→ 15s 超时，慢源（avg 5s）→ 20s 超时，失败重试自动放宽
+        req.setTimeout(adaptiveTimeoutMs, () => {
           req.destroy();
           clean(true); // 保留临时文件供续传
           if (settled) return;
           if (rc > 0) { setTimeout(() => attempt(rc - 1), 2000); }
-          else { doReject(new Error(`Timeout: ${urlStr}`)); }
+          else { doReject(new Error(`Timeout (${adaptiveTimeoutMs}ms, avg=${ctx.caches._connectAvg}ms): ${urlStr}`)); }
         });
       };
       attempt(retries);
@@ -275,4 +373,4 @@ async function _dlSingle(urlStr, destPath, options = {}) {
   }
 }
 
-module.exports = { _dlSingle };
+module.exports = { _dlSingle, _adaptiveTimeout, _recordConnectTime };

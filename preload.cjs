@@ -685,6 +685,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   serverHost: {
     list: () => ipcRenderer.invoke('server-host:list'),
     create: (opts) => ipcRenderer.invoke('server-host:create', opts),
+    cancelCreate: () => ipcRenderer.invoke('server-host:cancel-create'),
     start: (opts) => ipcRenderer.invoke('server-host:start', opts),
     stop: (opts) => ipcRenderer.invoke('server-host:stop', opts),
     command: (opts) => ipcRenderer.invoke('server-host:command', opts),

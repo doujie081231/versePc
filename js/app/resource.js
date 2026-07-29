@@ -9,6 +9,10 @@ const resourceState = {
   shader: { offset: 0, total: 0, query: '' },
 };
 
+// 资源列表请求竞态保护：每次请求递增 _reqId，await 后校验是否为最新请求
+// 避免快速切换时旧请求覆盖新请求导致图标/列表错乱
+const _resourceReqId = { modpack: 0, datapack: 0, resourcepack: 0, shader: 0 };
+
 const typeNames = {
   modpack: '整合包', datapack: '数据包',
   resourcepack: '材质包', shader: '光影包'
@@ -167,7 +171,12 @@ async function importModpackFromFile() {
           }
           if (window.electronAPI?.onImportProgress) {
             if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
-            window.electronAPI.onImportProgress(function (data) {
+            // 节流控制：避免高频进度回调打爆主线程
+            var _ipThrottleTimer = null;
+            var _ipLastData = null;
+            var _ipLastTime = 0;
+            var IP_THROTTLE_MS = 250;
+            function _doImportProgress(data) {
               var stageText = getImportStageText(data.message);
               var pct = data.progress || 0;
               var filesMapped = null;
@@ -191,6 +200,28 @@ async function importModpackFromFile() {
                 var u = { progress: pct, status: 'downloading', message: stageText + speedText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
                 if (filesMapped) u.files = filesMapped;
                 dlManager.update(taskId, u);
+              }
+            }
+            window.electronAPI.onImportProgress(function (data) {
+              var isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
+              if (isTerminal) {
+                if (_ipThrottleTimer) { clearTimeout(_ipThrottleTimer); _ipThrottleTimer = null; }
+                _doImportProgress(data);
+                return;
+              }
+              _ipLastData = data;
+              var now = Date.now();
+              if (now - _ipLastTime >= IP_THROTTLE_MS) {
+                _ipLastTime = now;
+                _doImportProgress(data);
+              } else {
+                if (!_ipThrottleTimer) {
+                  _ipThrottleTimer = setTimeout(function () {
+                    _ipThrottleTimer = null;
+                    _ipLastTime = Date.now();
+                    if (_ipLastData) _doImportProgress(_ipLastData);
+                  }, IP_THROTTLE_MS);
+                }
               }
             });
           }
@@ -252,7 +283,12 @@ document.addEventListener('drop', (e) => {
         }
         if (window.electronAPI?.onImportProgress) {
           if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
-          window.electronAPI.onImportProgress(function (data) {
+          // 节流控制：避免高频进度回调打爆主线程
+          var _progThrottleTimer = null;
+          var _progLastData = null;
+          var _progLastTime = 0;
+          var PROG_THROTTLE_MS = 250;
+          function _doHandleProgress(data) {
             var stageText = getImportStageText(data.message);
             var pct = data.progress || 0;
             if (_vi) {
@@ -260,6 +296,28 @@ document.addEventListener('drop', (e) => {
               DynamicIsland.update({ progress: pct, status: 'downloading', message: stageText, name: name || '整合包导入', speed: data.speed || 0, files: filesMapped, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
             } else if (typeof dlManager !== 'undefined') {
               dlManager.update(taskId, { progress: pct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
+            }
+          }
+          window.electronAPI.onImportProgress(function (data) {
+            var isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
+            if (isTerminal) {
+              if (_progThrottleTimer) { clearTimeout(_progThrottleTimer); _progThrottleTimer = null; }
+              _doHandleProgress(data);
+              return;
+            }
+            _progLastData = data;
+            var now = Date.now();
+            if (now - _progLastTime >= PROG_THROTTLE_MS) {
+              _progLastTime = now;
+              _doHandleProgress(data);
+            } else {
+              if (!_progThrottleTimer) {
+                _progThrottleTimer = setTimeout(function () {
+                  _progThrottleTimer = null;
+                  _progLastTime = Date.now();
+                  if (_progLastData) _doHandleProgress(_progLastData);
+                }, PROG_THROTTLE_MS);
+              }
             }
           });
         }
@@ -381,6 +439,10 @@ async function loadResourceList(type) {
   const prefix = type === 'resourcepack' ? 'resourcepack' : type === 'shader' ? 'shader' : type === 'datapack' ? 'datapack' : 'modpack';
   const container = document.getElementById(`${prefix}-browse-list`);
   if (!container) return;
+
+  // 递增请求 ID，用于 await 后校验是否为最新请求
+  const myReqId = ++_resourceReqId[type];
+
   container.innerHTML = `<div class="loading-spinner"><div class="spinner"></div><p>正在获取${typeNames[type] || '资源'}列表...</p></div>`;
 
   const state = resourceState[type];
@@ -391,6 +453,10 @@ async function loadResourceList(type) {
 
   try {
     const data = await API.searchResources(state.query, type, loader, version, resolution, 'downloads', 15, state.offset, source);
+
+    // 竞态校验：如果不是最新请求，丢弃结果（避免旧请求覆盖新请求）
+    if (_resourceReqId[type] !== myReqId) return;
+
     const hits = data.hits || [];
     state.total = data.total || 0;
     hits.forEach(item => _projectDataCache.set(item.id, item));
@@ -428,6 +494,8 @@ async function loadResourceList(type) {
     const currentPage = Math.floor(state.offset / 15) + 1;
     if (pageInfo) pageInfo.textContent = `${currentPage}/${totalPages}`;
   } catch (e) {
+    // 竞态校验：旧请求报错不覆盖新请求
+    if (_resourceReqId[type] !== myReqId) return;
     container.innerHTML = `<p class="empty-text">加载失败</p><button class="btn btn-secondary btn-sm" onclick="loadResourceList('${type}')" style="margin-top:8px">重试</button>`;
   }
 }

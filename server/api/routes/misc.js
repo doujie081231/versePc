@@ -19,6 +19,140 @@ module.exports = {
         const VERSIONS_DIR = ctx.dirs.VERSIONS_DIR;
 
         // ====================================================================
+        // /api/img-proxy - 图片代理（解决 Modrinth/CurseForge CDN 国内被墙问题）
+        // 前端把图片 URL 通过此接口转发，后端下载后返回图片数据
+        // ====================================================================
+        const https = require('https');
+        const http = require('http');
+        const _imgProxyCache = new Map();
+        const _IMG_CACHE_MAX = 300;
+        const _IMG_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+        function _fetchImage(url, maxRedirects) {
+            return new Promise((resolve, reject) => {
+                if (maxRedirects < 0) { reject(new Error('too many redirects')); return; }
+                const client = url.startsWith('https') ? https : http;
+                const opts = { timeout: 15000, headers: { 'User-Agent': 'VersePC/1.0' } };
+                client.get(url, opts, (proxyRes) => {
+                    if ([301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location) {
+                        proxyRes.resume();
+                        let nextUrl = proxyRes.headers.location;
+                        if (nextUrl.startsWith('/')) nextUrl = new URL(url).origin + nextUrl;
+                        _fetchImage(nextUrl, maxRedirects - 1).then(resolve, reject);
+                        return;
+                    }
+                    if (proxyRes.statusCode !== 200) {
+                        proxyRes.resume();
+                        reject(new Error('status ' + proxyRes.statusCode));
+                        return;
+                    }
+                    const mime = proxyRes.headers['content-type'] || 'image/png';
+                    const chunks = [];
+                    proxyRes.on('data', (c) => chunks.push(c));
+                    proxyRes.on('end', () => resolve({ buf: Buffer.concat(chunks), mime }));
+                }).on('error', (e) => reject(e)).on('timeout', function() {
+                    this.destroy();
+                    reject(new Error('timeout'));
+                });
+            });
+        }
+
+        // CDN 镜像映射：把被墙的 CDN URL 转成镜像 URL
+        const _CDN_MIRRORS = [
+            { prefix: 'https://cdn.modrinth.com/', mirror: 'https://mod.mcimirror.top/cdn/modrinth/' },
+            { prefix: 'https://cdn-alt.modrinth.com/', mirror: 'https://mod.mcimirror.top/cdn/modrinth/' },
+            { prefix: 'https://edge.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' },
+            { prefix: 'https://mediafilez.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' },
+            { prefix: 'https://media.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' },
+        ];
+        function _tryCdnMirror(url) {
+            for (const m of _CDN_MIRRORS) {
+                if (url.startsWith(m.prefix)) {
+                    return url.replace(m.prefix, m.mirror);
+                }
+            }
+            return null;
+        }
+
+        registerRoute('GET', '/api/img-proxy', async (req, res, parsedUrl) => {
+            let targetUrl = parsedUrl.query.url || '';
+            if (!targetUrl) { res.writeHead(400); res.end('missing url'); return; }
+            try { targetUrl = decodeURIComponent(targetUrl); } catch (_) {}
+            if (!/^https?:\/\//.test(targetUrl)) { res.writeHead(400); res.end('invalid url'); return; }
+
+            // 内存缓存命中
+            const cached = _imgProxyCache.get(targetUrl);
+            if (cached && Date.now() - cached.time < _IMG_CACHE_TTL) {
+                res.writeHead(200, { 'Content-Type': cached.mime, 'Cache-Control': 'public, max-age=604800' });
+                res.end(cached.data);
+                return;
+            }
+
+            try {
+                // 先尝试直接下载（最多等 8 秒）
+                let { buf, mime } = await _fetchImage(targetUrl, 5);
+                // 直接下载成功，写入缓存
+                if (_imgProxyCache.size >= _IMG_CACHE_MAX) {
+                    const oldestKey = _imgProxyCache.keys().next().value;
+                    _imgProxyCache.delete(oldestKey);
+                }
+                _imgProxyCache.set(targetUrl, { data: buf, mime, time: Date.now() });
+                res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=604800' });
+                res.end(buf);
+            } catch (err) {
+                // 直接下载失败，尝试镜像
+                const mirrorUrl = _tryCdnMirror(targetUrl);
+                if (mirrorUrl) {
+                    try {
+                        const { buf, mime } = await _fetchImage(mirrorUrl, 3);
+                        if (_imgProxyCache.size >= _IMG_CACHE_MAX) {
+                            const oldestKey = _imgProxyCache.keys().next().value;
+                            _imgProxyCache.delete(oldestKey);
+                        }
+                        _imgProxyCache.set(targetUrl, { data: buf, mime, time: Date.now() });
+                        res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=604800' });
+                        res.end(buf);
+                        return;
+                    } catch (mirrorErr) {
+                        // 镜像也失败，返回空图片
+                    }
+                }
+                res.writeHead(502);
+                res.end('');
+            }
+        });
+
+        // ====================================================================
+        // /api/favicon - 网站图标代理
+        // 国内 DuckDuckGo/Google favicon 服务均被墙，优先使用 Yandex（国内可访问）
+        // ====================================================================
+        registerRoute('GET', '/api/favicon', async (req, res, parsedUrl) => {
+            const domain = parsedUrl.query.domain || '';
+            if (!domain) { res.writeHead(400); res.end('missing domain'); return; }
+
+            const services = [
+                `https://favicon.yandex.net/favicon/${domain}?size=32`,
+                `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+                `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`,
+                `https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback=0&url=https://${encodeURIComponent(domain)}&size=32`
+            ];
+
+            const client = domain.startsWith('https') ? https : http;
+            for (const serviceUrl of services) {
+                try {
+                    const { buf, mime } = await _fetchImage(serviceUrl, 3);
+                    res.writeHead(200, { 'Content-Type': mime || 'image/x-icon', 'Cache-Control': 'public, max-age=86400' });
+                    res.end(buf);
+                    return;
+                } catch (_) {}
+            }
+
+            // 全部失败，返回 1x1 透明像素
+            res.writeHead(200, { 'Content-Type': 'image/gif', 'Cache-Control': 'public, max-age=3600' });
+            res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
+        });
+
+        // ====================================================================
         // /api/current-context
         // ====================================================================
         registerRoute('GET', '/api/current-context', async (req, res, parsedUrl) => {

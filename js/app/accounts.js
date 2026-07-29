@@ -715,7 +715,7 @@ async function initSkinViewer(skinUrl) {
       container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:14px;gap:8px;"><span style="font-size:24px;">⏳</span><span>正在加载皮肤查看器...</span></div>';
       await _lazyLoadScript('js/skinview3d.bundle.js');
     }
-    let skinModel = (_currentDetailAccount?.skinModel === 'slim') ? 'slim' : 'default';
+    let skinModel = ((_currentDetailAccount?.skinModel || '').toLowerCase() === 'slim') ? 'slim' : 'default';
     if (skinUrl) {
       try {
         const controller = new AbortController();
@@ -781,7 +781,7 @@ async function detailRefreshSkin() {
   if (!accUuid) { showToast('无UUID', 'error'); return; }
   const skinUrl = `/api/skin-texture?uuid=${accUuid}${acc.serverUrl ? '&serverUrl=' + encodeURIComponent(acc.serverUrl) : ''}${acc.username ? '&username=' + encodeURIComponent(acc.username) : ''}&_=${Date.now()}`;
   try {
-    let skinModel = (_currentDetailAccount?.skinModel === 'slim') ? 'slim' : 'default';
+    let skinModel = ((_currentDetailAccount?.skinModel || '').toLowerCase() === 'slim') ? 'slim' : 'default';
     try {
       const probe = await fetch(skinUrl.replace(/&_=\d+/, ''), { method: 'HEAD' });
       const headerModel = probe.headers.get('X-Skin-Model');

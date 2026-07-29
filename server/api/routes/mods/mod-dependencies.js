@@ -14,7 +14,7 @@ module.exports = {
    */
   register(registerRoute, deps) {
     const {
-      sendJSON, sendError, readBody, http, versions,
+      sendJSON, sendError, readBody, http, versions, utils,
       MODRINTH_API, CURSEFORGE_API
     } = extractDeps(deps);
 
@@ -90,7 +90,7 @@ module.exports = {
                   return {
                     projectId: dep.project_id,
                     title: proj?.title || dep.project_id,
-                    icon: proj?.icon_url || '',
+                    icon: utils.applyImageMirror(proj?.icon_url) || '',
                     description: proj?.description || '',
                     compatibleVersion
                   };
@@ -133,7 +133,7 @@ module.exports = {
                   return {
                     projectId: String(dep.modId),
                     title: projInfo?.name || String(dep.modId),
-                    icon: projInfo?.logo?.thumbnailUrl || projInfo?.logo?.url || '',
+                    icon: utils.applyImageMirror(projInfo?.logo?.thumbnailUrl || projInfo?.logo?.url) || '',
                     description: projInfo?.summary || '',
                     compatibleVersion
                   };
@@ -230,7 +230,7 @@ module.exports = {
               allDeps.push({
                 projectId: dep.projectId,
                 title: proj?.title || dep.projectId,
-                icon: proj?.icon_url || '',
+                icon: utils.applyImageMirror(proj?.icon_url) || '',
                 description: proj?.description || '',
                 compatibleVersion,
                 depth,
@@ -271,7 +271,7 @@ module.exports = {
               allDeps.push({
                 projectId: modIdStr,
                 title: projInfo?.name || modIdStr,
-                icon: projInfo?.logo?.thumbnailUrl || projInfo?.logo?.url || '',
+                icon: utils.applyImageMirror(projInfo?.logo?.thumbnailUrl || projInfo?.logo?.url) || '',
                 description: projInfo?.summary || '',
                 compatibleVersion,
                 depth,
@@ -305,7 +305,7 @@ module.exports = {
               result[project.id] = {
                 id: project.id,
                 title: project.title || project.id,
-                icon: project.icon_url || '',
+                icon: utils.applyImageMirror(project.icon_url) || '',
                 description: (project.description || '').substring(0, 100),
                 downloads: project.downloads || 0
               };
@@ -325,7 +325,7 @@ module.exports = {
               result[pid] = {
                 id: project.id,
                 title: project.title || pid,
-                icon: project.icon_url || '',
+                icon: utils.applyImageMirror(project.icon_url) || '',
                 description: (project.description || '').substring(0, 100),
                 downloads: project.downloads || 0
               };
@@ -402,7 +402,7 @@ module.exports = {
               id: project?.id || pid,
               title: project?.title || pid,
               slug: project?.slug || '',
-              icon: project?.icon_url || '',
+              icon: utils.applyImageMirror(project?.icon_url) || '',
               description: (project?.description || '').substring(0, 100),
               downloads: project?.downloads || 0,
               hasCompatibleVersion: !!compatibleVersion,
@@ -446,7 +446,7 @@ module.exports = {
                   data: {
                     id: proj.id || rid,
                     title: proj.title,
-                    icon: proj.icon_url || '',
+                    icon: utils.applyImageMirror(proj.icon_url) || '',
                     description: (proj.description || '').substring(0, 100),
                     downloads: proj.downloads || 0,
                     hasCompatibleVersion: !!compatibleVersion,
@@ -475,7 +475,7 @@ module.exports = {
                 const sr = await http.cachedFetchJSON(`${MODRINTH_API}/search?query=${encodeURIComponent(sid)}&limit=1`, 60000);
                 const hit = sr?.hits?.[0];
                 if (hit && hit.title) {
-                  return { sid, data: { id: hit.project_id || sid, title: hit.title, icon: hit.icon_url || '', description: (hit.description || '').substring(0, 100), downloads: hit.downloads || 0 } };
+                  return { sid, data: { id: hit.project_id || sid, title: hit.title, icon: utils.applyImageMirror(hit.icon_url) || '', description: (hit.description || '').substring(0, 100), downloads: hit.downloads || 0 } };
                 }
               } catch (e) {}
               return null;
@@ -505,7 +505,7 @@ module.exports = {
                     compatibleVersion = { id: String(cfFile.id), version_number: cfFile.displayName || cfFile.fileName, files: [{ filename: cfFile.fileName, primary: true }], game_versions: cfFile.gameVersions || [], loaders: cfFile.sortableGameVersions?.map((s) => s.gameVersionTypeId) || [] };
                   }
                 }
-                return { cid, data: { id: String(proj.id), title: proj.name, icon: proj.logo?.thumbnailUrl || proj.logo?.url || '', description: (proj.summary || '').substring(0, 100), downloads: proj.downloadCount || 0, hasCompatibleVersion: !!compatibleVersion, versionId: compatibleVersion?.id || '', versionNumber: compatibleVersion?.version_number || '', fileName: compatibleVersion?.files?.[0]?.filename || '', gameVersions: compatibleVersion?.game_versions || [], loaders: compatibleVersion?.loaders || [] } };
+                return { cid, data: { id: String(proj.id), title: proj.name, icon: utils.applyImageMirror(proj.logo?.thumbnailUrl || proj.logo?.url) || '', description: (proj.summary || '').substring(0, 100), downloads: proj.downloadCount || 0, hasCompatibleVersion: !!compatibleVersion, versionId: compatibleVersion?.id || '', versionNumber: compatibleVersion?.version_number || '', fileName: compatibleVersion?.files?.[0]?.filename || '', gameVersions: compatibleVersion?.game_versions || [], loaders: compatibleVersion?.loaders || [] } };
               } catch (e) { return null; }
             }));
             for (const r of cfResults) {

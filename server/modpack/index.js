@@ -12,7 +12,6 @@ module.exports = {
   _dedupeVersionId: shared._dedupeVersionId,
   _repairCorruptedModJars: shared._repairCorruptedModJars,
   isModpackPathSafe: shared.isModpackPathSafe,
-  _extractOverridesWithVerification: shared._extractOverridesWithVerification,
   importModpackFromPath: importer.importModpackFromPath,
   _importMrpack: modrinth._importMrpack,
   _importCurseForge: curseforge._importCurseForge,

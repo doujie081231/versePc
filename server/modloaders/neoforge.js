@@ -95,7 +95,7 @@ function findNeoForgeCoreJars(versionJson, searchBases, gameArgs) {
   // 若手动加入 classpath，会导致 JPMS 模块层冲突：
   //   "Module l2serial._4 reads more than one module named neoforge"
   // 因为 classpath 中的 jar 和 locator 加载的 jar 都会被 JPMS 解析为同名的 'neoforge' 自动模块。
-  // 参考 PCL 启动命令：classpath 中不包含这两个 neoforge-*-client.jar 和 neoforge-*-universal.jar。
+  // 参考：classpath 中不包含这两个 neoforge-*-client.jar 和 neoforge-*-universal.jar。
   if (_isNewScheme) {
     console.log(`[findNeoForgeCoreJars] NeoForge ${neoForgeVersion} (new scheme): 不向 classpath 添加 neoforge jar，由 locator 通过 -DlibraryDirectory 自动查找`);
     return [];

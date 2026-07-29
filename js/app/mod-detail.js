@@ -765,8 +765,11 @@ function _buildVersionItemHtml(v, idx) {
 
 function _sortVersionsByNumber(versions) {
   return [...versions].sort((a, b) => {
-    const aNum = a.versionNumber || a.versionName || '';
-    const bNum = b.versionNumber || b.versionName || '';
+    // 提取版本号字符串，去掉前缀 v/V
+    const aRaw = (a.versionNumber || a.versionName || '').trim();
+    const bRaw = (b.versionNumber || b.versionName || '').trim();
+    const aNum = aRaw.replace(/^v/i, '');
+    const bNum = bRaw.replace(/^v/i, '');
     const aParts = aNum.split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
     const bParts = bNum.split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
     for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
@@ -774,7 +777,10 @@ function _sortVersionsByNumber(versions) {
       const bVal = bParts[i] || 0;
       if (aVal !== bVal) return bVal - aVal;
     }
-    return 0;
+    // 版本号完全相同时，按发布日期降序（新版本在前）
+    const aDate = new Date(a.datePublished || 0).getTime();
+    const bDate = new Date(b.datePublished || 0).getTime();
+    return bDate - aDate;
   });
 }
 

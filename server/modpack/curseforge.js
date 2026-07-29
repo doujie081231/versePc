@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file server/modpack/curseforge.js - CurseForge 整合包导入
  * @description 解析 manifest.json，安装基础版本与模组加载器，下载 mods 与 overrides。
  */
@@ -12,9 +12,11 @@ const utils = require('../utils');
 const http = require('../http-client');
 const versions = require('../versions');
 const modloaders = require('../modloaders');
+const { createLogger } = require('../logger');
+
+const logger = createLogger('CurseForge');
 
 const { _dedupeVersionId, _cleanDownloadingResidue, isModpackPathSafe, _repairCorruptedModJars, relocateMisplacedResourcePacks, resolveConcurrency, computeModTimeout, createProgressUpdater, _saveModManifest } = require('./shared');
-const { completeModpackDependencies } = require('./dep-completion');
 
 /**
  * 导入 CurseForge 整合包（解析 manifest、安装基础版本与加载器、下载 mods 与 overrides）。
@@ -38,6 +40,10 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
 
   const packName  = (manifest.name || path.basename(filePath, path.extname(filePath))).replace(/[<>:"/\\|?*]/g, '_');
   const mcVersion = manifest.minecraft && manifest.minecraft.version ? manifest.minecraft.version : '';
+  // 显式校验 mcVersion，缺失时直接报错
+  if (!mcVersion) {
+    return { success: false, error: 'CurseForge 整合包未提供 Minecraft 版本信息' };
+  }
   const loaders   = manifest.minecraft && manifest.minecraft.modLoaders ? manifest.minecraft.modLoaders : [];
   const modLoader = loaders.length > 0 ? loaders[0].id : '';
 
@@ -268,6 +274,13 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
     const entries = zip.getEntries();
     const overrideFiles = [];
     let cfExtractYieldCounter = 0;
+    let cfExtractCount = 0;
+    // 先统计待解压文件总数，用于实时进度反馈
+    let _cfOverrideTotal = 0;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      if (entry.entryName.startsWith('overrides/')) _cfOverrideTotal++;
+    }
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       if (!isModpackPathSafe(entry.entryName)) continue;
@@ -292,8 +305,13 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
             if (attempt < 5) await new Promise((r) => setTimeout(r, (attempt - 1) * 2000));
           }
         }
-        if (cfExtractOk) overrideFiles.push({ name: relPath, status: 'completed', progress: 100 });
-        if (++cfExtractYieldCounter % 50 === 0) await utils.yieldToEventLoop();
+        if (cfExtractOk) { overrideFiles.push({ name: relPath, status: 'completed', progress: 100 }); cfExtractCount++; }
+        // 实时进度反馈：每 50 个文件更新一次进度（40% → 50% 区间）
+        if (_cfOverrideTotal > 0 && ++cfExtractYieldCounter % 50 === 0) {
+          const _cfExtractPct = 40 + Math.round((cfExtractCount / _cfOverrideTotal) * 10);
+          progress('extract', `解压覆盖文件... (${cfExtractCount}/${_cfOverrideTotal})`, _cfExtractPct, [], '');
+          await utils.yieldToEventLoop();
+        }
       }
     }
 
@@ -327,13 +345,12 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
     }
 
     try {
+      // 强制开启版本隔离，避免不同整合包 mods 目录共享冲突
       const vsPath = path.join(versionDir, 'version-settings.json');
       let vs = {};
       if (fs.existsSync(vsPath)) vs = JSON.parse(fs.readFileSync(vsPath, 'utf-8'));
-      if (!vs.isolation || vs.isolation === 'global') {
-        vs.isolation = 'on';
-        fs.writeFileSync(vsPath, JSON.stringify(vs, null, 2));
-      }
+      vs.isolation = 'on';
+      fs.writeFileSync(vsPath, JSON.stringify(vs, null, 2));
     } catch (_) {}
 
     const cfFiles = manifest.files || [];
@@ -357,7 +374,7 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
       overrideFiles,
       modCount: cfFiles.length,
       progress,
-      getDoneCount: () => cfDownloadedCount,
+      getDoneCount: () => cfDownloadedCount + cfFailedCount,
       getInFlight: () => cfInFlight
     });
 
@@ -389,16 +406,84 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
           if (abortSignal && abortSignal.aborted) throw new Error('下载已取消');
           let fileInfo = _cfFileInfoMap[fileID] ? { data: _cfFileInfoMap[fileID] } : null;
           if (!fileInfo && round === 0) {
-            fileInfo = await http.fetchJSON(`${ctx.urls.CURSEFORGE_API}/mods/${projectID}/files/${fileID}`, { 'x-api-key': cfApiKey });
+            // [关键修复] 直接使用镜像 URL，避免 fetchJSON 熔断后回退到被墙的官方源
+            const _cfApiBase = ctx.urls.CURSEFORGE_API_MIRROR || ctx.urls.CURSEFORGE_API;
+            fileInfo = await http.fetchJSON(`${_cfApiBase}/mods/${projectID}/files/${fileID}`, { 'x-api-key': cfApiKey });
           }
-          const downloadUrl = fileInfo && fileInfo.data ? fileInfo.data.downloadUrl : null;
+          let downloadUrl = fileInfo && fileInfo.data ? fileInfo.data.downloadUrl : null;
+          // downloadUrl 为空时，根据 fileID 和 fileName 构造 CurseForge CDN URL
+          // CurseForge 部分文件 API 返回 downloadUrl 为 null，但 CDN 实际可访问
+          // URL 格式：https://edge.forgecdn.net/files/{fileID前4位}/{fileID剩余位}/{fileName}
+          // [关键修复] fileName 必须用 encodeURIComponent 编码，否则包含空格/方括号等特殊字符的文件名
+          // 会导致 HTTP 请求解析失败（如 "GeophilicBackported-v1.3.3 1.20.1.jar" 中的空格）
+          if (!downloadUrl && fileInfo && fileInfo.data && fileInfo.data.fileName) {
+            const _fileIdStr = String(fileID);
+            if (_fileIdStr.length >= 5) {
+              const _part1 = parseInt(_fileIdStr.substring(0, 4), 10);
+              const _part2 = parseInt(_fileIdStr.substring(4), 10);
+              const _encodedFileName = encodeURIComponent(fileInfo.data.fileName);
+              downloadUrl = `https://edge.forgecdn.net/files/${_part1}/${_part2}/${_encodedFileName}`;
+              logger.info(`downloadUrl 为空，已构造 CDN URL: ${projectID}:${fileID} -> ${downloadUrl}`);
+            }
+          }
           if (downloadUrl) {
-            const fileName = path.basename(downloadUrl);
+            // [关键修复] 必须对 URL 提取的文件名做 decodeURIComponent，
+            // 否则 + [ ] 空格 等字符会以 %2b %5b %5d %20 形式保留在文件名中，
+            // 导致整合包检测模组（如 ATM10 的 BCC/allthetweaks）判定为"模组被改动"。
+            // 下载的文件名是解码后的正常字符，与 CurseForge manifest 声明一致。
+            const fileName = decodeURIComponent(path.basename(downloadUrl));
             const destPath = path.join(modsDir, fileName);
             if (cfModFiles[index]) { cfModFiles[index].name = fileName; cfModFiles[index]._destPath = destPath; }
 
-            if (utils.isJarIntactDeep(destPath)) {
+            // 校验已存在文件的大小 + SHA1，完全匹配才跳过下载
+            // 之前只校验 JAR 结构完整就跳过，导致错误版本的同名模组被复用（模组冲突根因）
+            const _existingFi = fileInfo && fileInfo.data ? fileInfo.data : (_cfFileInfoMap[fileID] || null);
+            const _expectedSize = _existingFi ? (_existingFi.fileLength || 0) : 0;
+            const _expectedSha1 = _existingFi ? ((_existingFi.hashes || []).find((h) => h.algo === 1)?.value || '') : '';
+            let _canSkip = false;
+            if (fs.existsSync(destPath) && utils.isJarIntactDeep(destPath)) {
+              if (_expectedSize > 0) {
+                try {
+                  const _actualSize = fs.statSync(destPath).size;
+                  if (_actualSize !== _expectedSize) {
+                    console.warn(`[CurseForge] 已存在文件大小不匹配，重新下载: ${fileName} (期望=${_expectedSize}, 实际=${_actualSize})`);
+                  } else if (_expectedSha1) {
+                    const _actualSha1 = await utils.calculateSHA1(destPath);
+                    if (_actualSha1 === _expectedSha1) {
+                      _canSkip = true;
+                    } else {
+                      console.warn(`[CurseForge] 已存在文件 SHA1 不匹配，重新下载: ${fileName}`);
+                    }
+                  } else {
+                    _canSkip = true;
+                  }
+                } catch (e) {
+                  console.warn(`[CurseForge] 校验已存在文件失败: ${fileName} - ${e.message}`);
+                }
+              } else {
+                _canSkip = true;
+              }
+              if (!_canSkip) {
+                try { fs.unlinkSync(destPath); } catch (_) {}
+              }
+            }
+            if (_canSkip) {
               cfDownloaded = true;
+              if (cfModFiles[index]) {
+                cfModFiles[index]._destPath = destPath;
+                try { cfModFiles[index]._modId = utils.readJarModId(destPath); } catch (_) {}
+                try {
+                  if (_existingFi) {
+                    cfModFiles[index]._fileInfo = {
+                      id: _existingFi.id || fileID,
+                      fileName: fileName || _existingFi.fileName || '',
+                      downloadUrl: _existingFi.downloadUrl || '',
+                      fileLength: _existingFi.fileLength || 0,
+                      sha1: (_existingFi.hashes || []).find((h) => h.algo === 1)?.value || ''
+                    };
+                  }
+                } catch (_) {}
+              }
             } else {
               const perTryAbort = new AbortController();
               const cfTimeout = computeModTimeout(fileInfo?.data?.fileLength || fileSize || 0);
@@ -408,120 +493,82 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
                 abortSignal.addEventListener('abort', () => { try { perTryAbort.abort(); } catch (_) {} }, { once: true });
               }
               try {
-                const allUrls = http.getMirrorUrls(downloadUrl);
-                for (const mirrorUrl of allUrls) {
-                  if (cfDownloaded || perTryAbort.signal.aborted) break;
-                  try {
-                    await http._dlSingle(mirrorUrl, destPath, {
-                      onProgress: (p) => {
-                        if (p && cfModFiles[index]) {
-                          cfModFiles[index].progress = Math.round(p.progress || 0);
-                          cfModFiles[index].downloaded = p.downloaded || 0;
-                          cfModFiles[index].speed = p.speed || '';
-                        }
-                        cfUpdateOverall();
-                      },
-                      retries: 3,
-                      stallTimeout: 45000,
-                      abortSignal: perTryAbort.signal,
-                      timeout: computeModTimeout(fileInfo?.data?.fileLength || 0),
-                      agent: _cfAgent
-                    });
-                    if (utils.isJarIntact(destPath)) {
-                      if (cfModFiles[index]) {
-                        cfModFiles[index]._destPath = destPath;
-                        try { cfModFiles[index]._modId = utils.readJarModId(destPath); } catch (_) {}
-                        try {
-                          const fi = fileInfo && fileInfo.data ? fileInfo.data : (_cfFileInfoMap[fileID] || null);
-                          if (fi) {
-                            cfModFiles[index]._fileInfo = {
-                              id: fi.id || fileID,
-                              fileName: fileName || fi.fileName || '',
-                              downloadUrl: fi.downloadUrl || '',
-                              fileLength: fi.fileLength || 0,
-                              sha1: (fi.hashes || []).find((h) => h.algo === 'Sha1')?.value || ''
-                            };
-                          }
-                        } catch (_) {}
-                      }
-                      cfDownloaded = true;
-                      break;
-                    } else {
-                      try { fs.unlinkSync(destPath); } catch (_) {}
+                // 全量走 XMCL 引擎：64 线程分块 + 多镜像回退 + 测速换源
+                // XMCL 内部已处理多 URL 选择、慢速换源、stall 检测，无需多层回退
+                const _cfAllUrls = http.getMirrorUrls(downloadUrl);
+                const raceResult = await http.downloadFileRace(_cfAllUrls, destPath, {
+                  onProgress: (p) => {
+                    if (p && cfModFiles[index]) {
+                      cfModFiles[index].progress = Math.round(p.progress || 0);
+                      cfModFiles[index].downloaded = p.downloaded || 0;
+                      cfModFiles[index].speed = p.speed || '';
                     }
-                  } catch (e) {
-                    if (abortSignal && abortSignal.aborted) break;
-                    try { fs.unlinkSync(destPath); } catch (_) {}
+                    cfUpdateOverall();
+                  },
+                  retries: 2,
+                  stallTimeout: 180000,
+                  abortSignal: perTryAbort.signal,
+                  timeout: cfTimeout
+                });
+
+                if (utils.isJarIntact(destPath)) {
+                  // 下载后校验 SHA1：防止 CDN 返回大小正确但内容损坏的文件
+                  const _fi = fileInfo && fileInfo.data ? fileInfo.data : (_cfFileInfoMap[fileID] || null);
+                  const _expectedSha1 = _fi ? ((_fi.hashes || []).find((h) => h.algo === 1)?.value || '') : '';
+                  let _sha1Ok = true;
+                  if (_expectedSha1) {
+                    try {
+                      const _actualSha1 = await utils.calculateSHA1(destPath);
+                      if (_actualSha1 !== _expectedSha1) {
+                        console.warn(`[CurseForge] 下载后 SHA1 不匹配，重试: ${fileName} (期望=${_expectedSha1.substring(0, 8)}, 实际=${_actualSha1.substring(0, 8)})`);
+                        try { fs.unlinkSync(destPath); } catch (_) {}
+                        _sha1Ok = false;
+                      }
+                    } catch (e) {
+                      console.warn(`[CurseForge] SHA1 计算失败: ${fileName} - ${e.message}`);
+                    }
                   }
+                  if (_sha1Ok) {
+                    if (cfModFiles[index]) {
+                      cfModFiles[index]._destPath = destPath;
+                      try { cfModFiles[index]._modId = utils.readJarModId(destPath); } catch (_) {}
+                      try {
+                        if (_fi) {
+                          cfModFiles[index]._fileInfo = {
+                            id: _fi.id || fileID,
+                            fileName: fileName || _fi.fileName || '',
+                            downloadUrl: _fi.downloadUrl || '',
+                            fileLength: _fi.fileLength || 0,
+                            sha1: (_fi.hashes || []).find((h) => h.algo === 1)?.value || ''
+                          };
+                        }
+                      } catch (_) {}
+                    }
+                    cfDownloaded = true;
+                  }
+                } else {
+                  try { fs.unlinkSync(destPath); } catch (_) {}
                 }
+              } catch (e) {
+                if (abortSignal && abortSignal.aborted) break;
+                try { fs.unlinkSync(destPath); } catch (_) {}
+                console.warn(`[CurseForge] ${fileName} XMCL 下载失败: ${e.message.substring(0, 100)}`);
               } finally {
                 clearTimeout(perTryTimeout);
               }
             }
           } else {
-            console.warn(`[CurseForge] 无法获取下载URL: ${projectID}:${fileID}`);
+            logger.warn(`无法获取下载URL: projectID=${projectID} fileID=${fileID} (fileInfo=${fileInfo ? '有' : '无'})`);
             if (cfModFiles[index]) { cfModFiles[index].status = 'failed'; cfModFiles[index].error = 'CurseForge 未提供下载链接'; }
             break;
           }
         } catch (e) {
           if (abortSignal && abortSignal.aborted) break;
-          console.warn(`[CurseForge] 下载失败(round ${round + 1}):`, projectID, fileID, e.message);
-        }
-      }
-
-      if (!cfDownloaded && !(abortSignal && abortSignal.aborted) && cfApiKey) {
-        try {
-          let cfLoaderTypeFilter = '';
-          if (forgeVerCF) cfLoaderTypeFilter = '&modLoaderType=1';
-          else if (fabricVerCF) cfLoaderTypeFilter = '&modLoaderType=4';
-          else if (neoforgeVerCF) cfLoaderTypeFilter = '&modLoaderType=5';
-          const allFilesRes = await http.fetchJSON(`${ctx.urls.CURSEFORGE_API}/mods/${projectID}/files?gameVersion=${mcVersion}${cfLoaderTypeFilter}`, { 'x-api-key': cfApiKey });
-          if (allFilesRes && allFilesRes.data && Array.isArray(allFilesRes.data)) {
-            const mcVer = mcVersion;
-            const matchingFiles = allFilesRes.data.filter((f) =>
-              f.gameVersions && f.gameVersions.includes(mcVer) &&
-              f.downloadUrl && f.fileName && f.fileName.endsWith('.jar')
-            );
-            for (const altFile of matchingFiles.slice(0, 3)) {
-              if (cfDownloaded) break;
-              const destPath = path.join(modsDir, altFile.fileName);
-              if (cfModFiles[index]) { cfModFiles[index].name = altFile.fileName; cfModFiles[index]._destPath = destPath; }
-              if (utils.isJarIntact(destPath)) { cfDownloaded = true; break; }
-              try {
-                await http._dlSingle(altFile.downloadUrl, destPath, {
-                  onProgress: (p) => {
-                    if (p && cfModFiles[index]) cfModFiles[index].progress = Math.round(p.progress || 0);
-                    cfUpdateOverall();
-                  },
-                  retries: 2,
-                  abortSignal,
-                  timeout: 300000,
-                  agent: _cfAgent
-                });
-                if (utils.isJarIntact(destPath)) {
-                  if (cfModFiles[index]) {
-                    cfModFiles[index]._destPath = destPath;
-                    try { cfModFiles[index]._modId = utils.readJarModId(destPath); } catch (_) {}
-                    try {
-                      cfModFiles[index]._fileInfo = {
-                        id: altFile.id || fileID,
-                        fileName: altFile.downloadUrl ? path.basename(altFile.downloadUrl) : (altFile.fileName || path.basename(destPath)),
-                        downloadUrl: altFile.downloadUrl || '',
-                        fileLength: altFile.fileLength || 0,
-                        sha1: (altFile.hashes || []).find((h) => h.algo === 'Sha1')?.value || ''
-                      };
-                    } catch (_) {}
-                  }
-                  cfDownloaded = true;
-                } else {
-                  try { fs.unlinkSync(destPath); } catch (_) {}
-                }
-              } catch (_) {
-                try { fs.unlinkSync(destPath); } catch (_) {}
-              }
-            }
+          logger.warn(`下载失败(round ${round + 1}): projectID=${projectID} fileID=${fileID} - ${e.message}`);
+          if (cfModFiles[index] && !cfModFiles[index].error) {
+            cfModFiles[index].error = e.message.substring(0, 120);
           }
-        } catch (_) {}
+        }
       }
 
       if (cfDownloaded) {
@@ -533,15 +580,16 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
         if (abortSignal && abortSignal.aborted) {
           cfModFiles[index].status = 'failed'; cfModFiles[index].error = '已取消';
         } else {
-          cfModFiles[index].status = 'failed'; cfModFiles[index].error = '下载失败';
+          cfModFiles[index].status = 'failed';
+          if (!cfModFiles[index].error) cfModFiles[index].error = '下载失败';
           cfFailedCount++;
-          console.error(`[CurseForge] Mod ${projectID}:${fileID} 最终下载失败`);
+          logger.error(`Mod ${projectID}:${fileID} 最终下载失败: ${cfModFiles[index].error}`);
           // 熔断保护：仅当失败率超过 40% 且失败数明显大于成功数时才取消
           // 避免前期少量失败就触发熔断导致整个整合包下载失败
           const totalAttempts = cfDownloadedCount + cfFailedCount;
           const failRatio = cfFailedCount / Math.max(totalAttempts, 1);
           if (cfFailedCount > Math.max(20, cfFiles.length * 0.4) && failRatio > 0.75) {
-            console.error(`[CurseForge] 失败率过高(${cfFailedCount}/${totalAttempts} = ${(failRatio * 100).toFixed(1)}%)，取消剩余下载`);
+            logger.error(`失败率过高(${cfFailedCount}/${totalAttempts} = ${(failRatio * 100).toFixed(1)}%)，取消剩余下载`);
             if (abortSignal) try { abortSignal.abort(); } catch (_) {}
           }
         }
@@ -553,19 +601,34 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
     const _cfFileInfoMap = {};
     if (cfApiKey && cfFiles.length > 0) {
       progress('mods', `正在获取 ${cfFiles.length} 个 Mod 的下载信息...`, 50, [...overrideFiles, ...cfModFiles], '');
+      // [关键修复] 直接使用镜像 URL，避免 fetchJSONWithMethod 的镜像熔断逻辑导致回退到被墙的官方源
+      // 之前问题：镜像偶发 ECONNRESET → 连续3次失败熔断1分钟 → 回退官方源（被墙）→ 全部失败
+      // 解决：直接用镜像 URL，不走熔断；并增加重试，应对偶发 ECONNRESET
+      const _cfApiBase = ctx.urls.CURSEFORGE_API_MIRROR || ctx.urls.CURSEFORGE_API;
       const _cfBatchSize = 50;
       for (let bi = 0; bi < cfFiles.length; bi += _cfBatchSize) {
         if (abortSignal && abortSignal.aborted) break;
         const batch = cfFiles.slice(bi, bi + _cfBatchSize);
-        try {
-          const batchRes = await http.fetchJSONWithMethod(`${ctx.urls.CURSEFORGE_API}/mods/files`, 'POST',
-            JSON.stringify({ fileIds: batch.map((f) => f.fileID) }),
-            { 'x-api-key': cfApiKey, 'Content-Type': 'application/json' });
-          if (batchRes && batchRes.data) {
-            for (const fi of batchRes.data) _cfFileInfoMap[fi.id] = fi;
+        let _batchOk = false;
+        // 重试3次，应对镜像偶发 ECONNRESET
+        for (let _try = 0; _try < 3 && !_batchOk; _try++) {
+          if (abortSignal && abortSignal.aborted) break;
+          try {
+            const batchRes = await http.fetchJSONWithMethod(`${_cfApiBase}/mods/files`, 'POST',
+              JSON.stringify({ fileIds: batch.map((f) => f.fileID) }),
+              { 'x-api-key': cfApiKey, 'Content-Type': 'application/json' });
+            if (batchRes && batchRes.data) {
+              for (const fi of batchRes.data) _cfFileInfoMap[fi.id] = fi;
+              _batchOk = true;
+            }
+          } catch (e) {
+            logger.warn(`批量获取文件信息失败(batch ${bi}-${bi + batch.length}, 尝试 ${_try + 1}/3): ${e.message}`);
+            // ECONNRESET 是网络瞬态错误，等待 1 秒后重试
+            if (_try < 2) await new Promise(r => setTimeout(r, 1000 + _try * 1000));
           }
-        } catch (e) {
-          console.warn(`[CurseForge] 批量获取文件信息失败: ${e.message}，将逐个获取`);
+        }
+        if (!_batchOk) {
+          logger.warn(`批量获取文件信息最终失败(batch ${bi}-${bi + batch.length})，将逐个获取`);
         }
       }
     }
@@ -643,21 +706,6 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
     const cfRepairResult = await _repairCorruptedModJars(versionDir);
     if (cfRepairResult.failed > 0) {
       console.warn(`[CurseForge] ${cfRepairResult.failed} 个模组文件损坏且无法修复，游戏启动时可能报错`);
-    }
-
-    // 依赖补全：扫描所有 mod 的依赖声明，自动下载缺失的前置依赖
-    // 解决整合包作者漏写依赖 mod 导致游戏启动崩溃的问题
-    try {
-      const _cfDepLoader = fabricVerCF ? 'fabric' : (forgeVerCF ? 'forge' : (neoforgeVerCF ? 'neoforge' : 'forge'));
-      const cfDepResult = await completeModpackDependencies(versionDir, mcVersion, _cfDepLoader, settings, progress);
-      if (cfDepResult.downloaded > 0) {
-        console.log(`[CurseForge] 依赖补全: ${cfDepResult.downloaded} 个缺失依赖已自动下载`);
-      }
-      if (cfDepResult.failed > 0) {
-        console.warn(`[CurseForge] 依赖补全: ${cfDepResult.failed} 个依赖未找到: ${cfDepResult.failedDeps.join(', ')}`);
-      }
-    } catch (cfDepErr) {
-      console.warn(`[CurseForge] 依赖补全过程异常(非致命): ${cfDepErr.message}`);
     }
 
     if (loaderVersionId && mcVersion) {

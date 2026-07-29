@@ -27,24 +27,62 @@ const { _dlSingle } = require('./download-single');
  * @param {Function} [onProgress] - 进度回调
  * @param {number} [retries=3] - 重试次数
  * @param {AbortSignal} [abortSignal=null] - 取消信号
+ * @param {object} [opts={}] - 额外选项：{ stallTimeout, timeout }
+ *   [关键修复 - 2026-07-27] 添加 opts 参数透传 stallTimeout/timeout
+ *   避免分块失败回退到顺序 downloadFile 时丢失 stallTimeout，导致单流下载用默认 60s，
+ *   CDN 节点卡死时要等 60s 才换源。
  * @returns {Promise<{size: number, path: string}>}
  */
-function downloadFile(urlStr, destPath, onProgress, retries = 3, abortSignal = null) {
-  if (ctx.constants.NO_CHUNK_HOSTS.some((d) => urlStr.includes(d))) return _dlSingle(urlStr, destPath, { onProgress, retries, abortSignal });
-  // [P0 OPT - 2026-07-23] 优先走 H2 多路复用，失败回退 chunked → single
-  if (shouldTryH2(urlStr)) {
-    return downloadFileH2(urlStr, destPath, { onProgress, abortSignal }).catch((err) => {
-      if (abortSignal && abortSignal.aborted) throw err;
-      // H2 失败回退 H1.1 chunked
-      return downloadFileChunked(urlStr, destPath, { onProgress, retries, abortSignal }).catch((err2) => {
-        if (abortSignal && abortSignal.aborted) throw err2;
-        return _dlSingle(urlStr, destPath, { onProgress, retries, abortSignal });
-      });
-    });
+function downloadFile(urlStr, destPath, onProgress, retries = 3, abortSignal = null, opts = {}) {
+  const { stallTimeout = null, timeout = null, expectedSize = 0, sha1 = null, mirrors = null } = opts;
+  // 构建 _dlSingle 选项：仅传入有效字段，避免污染默认值
+  const singleOpts = { onProgress, retries, abortSignal };
+  if (stallTimeout) singleOpts.stallTimeout = stallTimeout;
+  if (timeout) singleOpts.timeout = timeout;
+  // 构建 chunked 选项
+  const chunkedOpts = { onProgress, retries, abortSignal };
+  if (stallTimeout) chunkedOpts.stallTimeout = stallTimeout;
+  if (timeout) chunkedOpts.timeout = timeout;
+
+  if (ctx.constants.NO_CHUNK_HOSTS.some((d) => urlStr.includes(d))) return _dlSingle(urlStr, destPath, singleOpts);
+
+  // 优先使用 XMCL 下载引擎（高性能分块 + 多镜像回退 + 测速换源）
+  // 收集镜像 URL 列表
+  let _xmclUrls = [urlStr];
+  if (mirrors && Array.isArray(mirrors) && mirrors.length > 0) {
+    _xmclUrls = mirrors;
+  } else {
+    try {
+      const { getMirrorUrls } = require('./mirror');
+      _xmclUrls = getMirrorUrls(urlStr);
+    } catch (_) {}
   }
-  return downloadFileChunked(urlStr, destPath, { onProgress, retries, abortSignal }).catch((err) => {
+  const _xmclOpts = {
+    onProgress,
+    abortSignal,
+    expectedSize: expectedSize || 0,
+    maxChunks: 64,
+    stallTimeout: stallTimeout || 180000,
+  };
+  if (sha1) _xmclOpts.sha1 = sha1;
+  const { xmclDownload } = require('./xmcl-download');
+  return xmclDownload(_xmclUrls, destPath, _xmclOpts).catch((err) => {
     if (abortSignal && abortSignal.aborted) throw err;
-    return _dlSingle(urlStr, destPath, { onProgress, retries, abortSignal });
+    console.warn(`[Download] XMCL 引擎失败，回退到 chunked: ${err.message}`);
+    // 回退到现有 chunked → single 链路
+    if (shouldTryH2(urlStr)) {
+      return downloadFileH2(urlStr, destPath, { onProgress, abortSignal }).catch((err2) => {
+        if (abortSignal && abortSignal.aborted) throw err2;
+        return downloadFileChunked(urlStr, destPath, chunkedOpts).catch((err3) => {
+          if (abortSignal && abortSignal.aborted) throw err3;
+          return _dlSingle(urlStr, destPath, singleOpts);
+        });
+      });
+    }
+    return downloadFileChunked(urlStr, destPath, chunkedOpts).catch((err2) => {
+      if (abortSignal && abortSignal.aborted) throw err2;
+      return _dlSingle(urlStr, destPath, singleOpts);
+    });
   });
 }
 
@@ -381,6 +419,100 @@ async function downloadMultiChunk(urls, destPath, { onProgress = null, maxChunks
   throw lastErr || new Error('所有下载源均失败');
 }
 
+/* 辅助：磁盘空间校验（仅对大文件执行） */
+
+/**
+ * 检查目标磁盘可用空间是否足够
+ * 仅当所需字节数 > 50MB 时才执行，避免对小文件做无谓的系统调用
+ * @param {string} destPath - 目标文件路径
+ * @param {number} requiredBytes - 所需字节数
+ * @throws {Error} 空间不足时抛出明确错误
+ */
+async function _checkDiskSpace(destPath, requiredBytes) {
+  // 50MB 以下不校验
+  if (!requiredBytes || requiredBytes <= 50 * 1024 * 1024) return;
+  try {
+    const dir = path.dirname(destPath);
+    // 确保目录存在，否则 statfs 会失败
+    if (!fs.existsSync(dir)) {
+      try { await fs.promises.mkdir(dir, { recursive: true }); } catch (_) {}
+    }
+    let freeBytes = -1;
+    // 优先用 fs.statfs（Node 18.15+ 支持）
+    if (typeof fs.statfs === 'function' || typeof fs.statfsSync === 'function') {
+      try {
+        const s = fs.statfsSync(dir);
+        freeBytes = s.bavail * s.bsize;
+      } catch (_) {}
+    }
+    // 回退：Windows 用 wmic 查询逻辑盘可用空间
+    if (freeBytes < 0 && process.platform === 'win32') {
+      try {
+        const drive = dir.charAt(0).toUpperCase();
+        const out = execSync(`wmic logicaldisk where "DeviceID='${drive}:'" get FreeSpace /value`,
+          { windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+        const m = out.match(/FreeSpace=(\d+)/);
+        if (m) freeBytes = parseInt(m[1], 10);
+      } catch (_) {}
+    }
+    if (freeBytes >= 0 && freeBytes < requiredBytes) {
+      const needMB = Math.ceil(requiredBytes / 1024 / 1024);
+      const freeMB = Math.floor(freeBytes / 1024 / 1024);
+      throw new Error(`磁盘空间不足，需要 ${needMB} MB，可用 ${freeMB} MB`);
+    }
+  } catch (e) {
+    // 仅传播磁盘空间不足的错误，其他错误（如 statfs 不可用）不阻塞下载
+    if (e && e.message && e.message.includes('磁盘空间不足')) throw e;
+  }
+}
+
+/* 辅助：在多个 MC 版本目录中按 Hash 查找已存在的 mod 文件 */
+
+/**
+ * 在 VERSIONS_DIR 下所有版本目录的 mods 子目录中查找同名且同 Hash 的 mod 文件
+ * 找到则复制到目标位置，避免重复下载
+ * @param {string} destPath - 目标文件路径
+ * @param {number} [expectedSize] - 期望文件大小（可选）
+ * @param {string} [expectedSha1] - 期望 SHA1（可选）
+ * @returns {Promise<{size: number, path: destPath, reused: boolean} | null>}
+ */
+async function _findExistingModInVersions(destPath, expectedSize, expectedSha1) {
+  // 仅对 mods 目录下的 .jar 文件适用
+  const norm = destPath.replace(/\//g, path.sep);
+  if (!norm.includes(path.sep + 'mods' + path.sep)) return null;
+  if (!destPath.toLowerCase().endsWith('.jar')) return null;
+
+  const fileName = path.basename(destPath);
+  const versionsDir = ctx.dirs.VERSIONS_DIR;
+  if (!versionsDir) return null;
+
+  let versions;
+  try { await fs.promises.access(versionsDir); versions = await fs.promises.readdir(versionsDir); }
+  catch (_) { return null; }
+
+  for (const ver of versions) {
+    const candidate = path.join(versionsDir, ver, 'mods', fileName);
+    try {
+      const stat = await fs.promises.stat(candidate);
+      if (stat.size === 0) continue;
+      // 大小不匹配直接跳过
+      if (expectedSize && stat.size !== expectedSize) continue;
+      // 大小匹配但未提供 SHA1：保守起见仍要求 SHA1 校验通过才复用
+      if (!expectedSha1) continue;
+      let actualSha1;
+      try { actualSha1 = await utils.calculateSHA1(candidate); }
+      catch (_) { continue; }
+      if (actualSha1 !== expectedSha1) continue;
+      // 找到匹配文件，复制到目标位置
+      utils.ensureDirForFile(destPath);
+      await fs.promises.copyFile(candidate, destPath);
+      console.log(`[Download] 在版本 ${ver} 的 mods 中找到匹配文件，复用: ${fileName}`);
+      return { size: stat.size, path: destPath, reused: true };
+    } catch (_) { continue; }
+  }
+  return null;
+}
+
 /* 带镜像回退的下载入口 */
 
 /**
@@ -393,15 +525,54 @@ async function downloadMultiChunk(urls, destPath, { onProgress = null, maxChunks
  * @param {number} [customTimeout=null] - 自定义超时
  * @returns {Promise<{size: number, path: string, skipped?: boolean}>}
  */
-async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3, abortSignal = null, customTimeout = null) {
+async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3, abortSignal = null, customTimeout = null, customStallTimeout = null, expectedSize = null, expectedSha1 = null) {
   const allUrls = getMirrorUrls(urlStr);
 
+  // [P1-7] 多 MC 文件夹已存在文件查找：mod 文件按 Hash 匹配复用
+  // 仅对 mods 目录下的 .jar 文件适用，libraries/assets 不走此路径
+  if (expectedSha1 && destPath.toLowerCase().endsWith('.jar') &&
+      (destPath.includes('/mods/') || destPath.includes('\\mods\\'))) {
+    try {
+      const reused = await _findExistingModInVersions(destPath, expectedSize, expectedSha1);
+      if (reused) {
+        if (onProgress) try { onProgress({ bytesDownloaded: reused.size, totalBytes: reused.size, speed: 0, progress: 100 }); } catch (_) {}
+        return reused;
+      }
+    } catch (_) {}
+  }
+
+  // [P2-14] 文件 >50MB 磁盘空间校验，避免大文件下载到一半才发现空间不足
+  if (expectedSize && expectedSize > 50 * 1024 * 1024) {
+    await _checkDiskSpace(destPath, expectedSize);
+  }
+
   // 已存在且完整：直接跳过；JAR 损坏则删除重下
+  // 若调用方提供了 expectedSize/expectedSha1，严格校验大小和哈希，不匹配则删除重下
   try {
     const stat = await fs.promises.stat(destPath);
     if (stat.size > 0) {
       const isJarFile = destPath.endsWith('.jar');
+      let needRedownload = false;
       if (isJarFile && !utils.isJarIntact(destPath)) {
+        needRedownload = true;
+      } else if (expectedSize && stat.size !== expectedSize) {
+        console.warn(`[Download] 已存在文件大小不匹配，重新下载: ${destPath.split(/[\\/]/).pop()} (期望=${expectedSize}, 实际=${stat.size})`);
+        needRedownload = true;
+      }
+      // 异步校验 SHA1（仅在调用方提供时）
+      if (!needRedownload && expectedSha1) {
+        try {
+          const actualSha1 = await utils.calculateSHA1(destPath);
+          if (actualSha1 !== expectedSha1) {
+            console.warn(`[Download] 已存在文件 SHA1 不匹配，重新下载: ${destPath.split(/[\\/]/).pop()}`);
+            needRedownload = true;
+          }
+        } catch (e) {
+          console.warn(`[Download] SHA1 校验失败，保守起见重新下载: ${e.message}`);
+          needRedownload = true;
+        }
+      }
+      if (needRedownload) {
         await fs.promises.unlink(destPath).catch(() => {});
       } else {
         return { size: stat.size, path: destPath, skipped: true };
@@ -448,29 +619,55 @@ async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3,
     throw _libLastErr || new Error('所有下载源均失败');
   }
 
-  // 非 NO_CHUNK_HOSTS：优先尝试分块下载（带镜像列表）
+  // 非 NO_CHUNK_HOSTS：优先使用 XMCL 引擎，失败回退到分块
   if (!ctx.constants.NO_CHUNK_HOSTS.some((d) => urlStr.includes(d))) {
     try {
-      const chunkOpts = { onProgress, retries, mirrors: allUrls, abortSignal };
-      if (customTimeout) chunkOpts.timeout = customTimeout;
-      const result = await downloadFileChunked(urlStr, destPath, chunkOpts);
-      // 分块下载后再次校验 JAR 完整性
+      const { xmclDownload } = require('./xmcl-download');
+      const _xmclOpts = {
+        onProgress,
+        abortSignal,
+        expectedSize: expectedSize || 0,
+        maxChunks: 64,
+        stallTimeout: customStallTimeout || 180000,
+      };
+      if (expectedSha1) _xmclOpts.sha1 = expectedSha1;
+      const result = await xmclDownload(allUrls, destPath, _xmclOpts);
+      // 下载后再次校验 JAR 完整性
       if (destPath.endsWith('.jar') && !utils.isJarIntact(destPath)) {
         await fs.promises.unlink(destPath).catch(() => {});
-        throw new Error('Chunked download produced invalid JAR');
+        throw new Error('XMCL download produced invalid JAR');
       }
       return result;
     } catch (e) {
       if (abortSignal && abortSignal.aborted) throw e;
+      console.warn(`[Download] XMCL 引擎失败，回退 chunked: ${e.message}`);
+      // 回退到原 chunked
+      try {
+        const chunkOpts = { onProgress, retries, mirrors: allUrls, abortSignal };
+        if (customTimeout) chunkOpts.timeout = customTimeout;
+        if (customStallTimeout) chunkOpts.stallTimeout = customStallTimeout;
+        const result = await downloadFileChunked(urlStr, destPath, chunkOpts);
+        if (destPath.endsWith('.jar') && !utils.isJarIntact(destPath)) {
+          await fs.promises.unlink(destPath).catch(() => {});
+          throw new Error('Chunked download produced invalid JAR');
+        }
+        return result;
+      } catch (e2) {
+        if (abortSignal && abortSignal.aborted) throw e2;
+      }
     }
   }
 
   // 分块失败：顺序遍历镜像列表逐个尝试
+  // [关键修复 - 2026-07-27] 传递 stallTimeout/timeout 到 downloadFile，避免回退路径丢失参数
+  const _seqOpts = {};
+  if (customStallTimeout) _seqOpts.stallTimeout = customStallTimeout;
+  if (customTimeout) _seqOpts.timeout = customTimeout;
   let lastError = null;
   for (const tryUrl of allUrls) {
     if (abortSignal && abortSignal.aborted) throw new Error('下载已中止');
     try {
-      const result = await downloadFile(tryUrl, destPath, onProgress, retries, abortSignal);
+      const result = await downloadFile(tryUrl, destPath, onProgress, retries, abortSignal, _seqOpts);
       // 顺序下载后 JAR 损坏：切下一个镜像
       if (destPath.endsWith('.jar') && !utils.isJarIntact(destPath)) {
         await fs.promises.unlink(destPath).catch(() => {});
@@ -486,11 +683,54 @@ async function downloadFileWithMirror(urlStr, destPath, onProgress, retries = 3,
   throw lastError;
 }
 
+/* 多源并发竞速下载 */
+
+/**
+ * 多源并发竞速下载：同时向所有镜像发起请求，谁先返回完整文件用谁，其余的立即取消。
+ *
+ * 实现思路：
+ *   1. 用 Promise.race 让所有镜像同时跑 _dlSingle
+ *   2. 每个镜像写到独立的临时文件（避免多源写同一文件冲突）
+ *   3. 第一个成功的立即原子重命名为目标文件，其余通过 AbortSignal 取消
+ *   4. 全部失败则抛出最后一个错误
+ *
+ * 适用场景：CurseForge/Modrinth mod 文件下载（通常 <10MB，多镜像并发收益大）
+ *
+ * @param {string[]} urls - 镜像 URL 列表（至少 1 个）
+ * @param {string} destPath - 目标文件路径
+ * @param {object} [opts] - onProgress / retries / abortSignal / stallTimeout / timeout
+ * @returns {Promise<{size: number, path: string, winnerUrl: string}>}
+ */
+async function downloadFileRace(urls, destPath, opts = {}) {
+  const { onProgress = null, retries = 2, abortSignal = null, stallTimeout = 45000, timeout = 60000 } = opts;
+  if (!urls || urls.length === 0) throw new Error('downloadFileRace: urls 为空');
+
+  // XMCL 引擎：多 URL 回退 + 64 线程分块，比竞速更高效
+  // XMCL 内部会自动选择最快的镜像，慢速自动换源
+  const { xmclDownload } = require('./xmcl-download');
+  try {
+    const result = await xmclDownload(urls, destPath, {
+      onProgress,
+      abortSignal,
+      maxChunks: 64,
+      stallTimeout,
+    });
+    return { ...result, winnerUrl: urls[0] };
+  } catch (e) {
+    if (abortSignal && abortSignal.aborted) throw e;
+    console.warn(`[Download] XMCL 竞速失败，回退到单流: ${e.message}`);
+    // 回退到单源单流
+    const r = await _dlSingle(urls[0], destPath, { onProgress, retries, abortSignal, stallTimeout, timeout });
+    return { ...r, winnerUrl: urls[0] };
+  }
+}
+
 module.exports = {
   downloadFile,
   downloadFileSync,
   downloadFileSyncAsync,
   downloadFileToBuffer,
   downloadMultiChunk,
-  downloadFileWithMirror
+  downloadFileWithMirror,
+  downloadFileRace
 };

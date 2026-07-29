@@ -11,9 +11,15 @@ const PageServerHost = {
               <h3 style="margin-top:0">创建服务端</h3>
               <div class="form-group">
                 <label class="filter-label">游戏版本</label>
-                <select id="server-host-version" class="text-input" style="max-width:520px">
-                  <option value="">加载中...</option>
-                </select>
+                <div class="custom-select" id="server-host-version-wrapper" style="max-width:520px">
+                  <div class="custom-select-trigger" id="server-host-version-trigger">
+                    <span class="custom-select-value placeholder" id="server-host-version-value">加载中...</span>
+                    <svg class="custom-select-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  <div class="custom-select-dropdown" id="server-host-version-dropdown">
+                    <div class="custom-select-options" id="server-host-version-options"></div>
+                  </div>
+                </div>
                 <span class="form-hint" id="server-host-loader-hint">选择本地版本后将自动识别加载器类型。</span>
               </div>
               <div class="sh-form-grid">
@@ -42,6 +48,7 @@ const PageServerHost = {
               </div>
               <div class="sh-actions">
                 <button class="btn btn-primary" id="server-host-create-btn" onclick="serverHostCreate()">创建并准备服务端</button>
+                <button class="btn btn-ghost" id="server-host-cancel-btn" onclick="serverHostCancelCreate()" style="display:none;color:#ef4444">取消创建</button>
                 <button class="btn btn-ghost" onclick="serverHostRefreshVersions()">刷新版本</button>
                 <button class="btn btn-ghost" onclick="serverHostOpenFolder()">打开目录</button>
               </div>

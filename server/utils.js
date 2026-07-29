@@ -872,5 +872,27 @@ module.exports = {
   calculateSHA1,
   calculateSHA1Sync,
   verifyFileSha1,
-  verifyFileSha1Sync
+  verifyFileSha1Sync,
+  applyImageMirror
 };
+
+/* 图片 URL 镜像替换：把 Modrinth/CurseForge CDN 图片转成后端代理 URL。
+   原因：mcimirror.top 对图片会 302 回官方源，国内直连 cdn-alt.modrinth.com 和 forgecdn 都被墙。
+   方案：通过 /api/img-proxy 后端代理下载图片，彻底绕过 CDN 被墙问题。 */
+function applyImageMirror(url) {
+  if (!url || typeof url !== 'string') return url;
+  // 只代理 Modrinth 和 CurseForge 的 CDN 图片
+  const cdnPrefixes = [
+    'https://cdn.modrinth.com/',
+    'https://cdn-alt.modrinth.com/',
+    'https://edge.forgecdn.net/',
+    'https://mediafilez.forgecdn.net/',
+    'https://media.forgecdn.net/'
+  ];
+  for (const prefix of cdnPrefixes) {
+    if (url.startsWith(prefix)) {
+      return '/api/img-proxy?url=' + encodeURIComponent(url);
+    }
+  }
+  return url;
+}

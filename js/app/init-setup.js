@@ -53,7 +53,6 @@ async function init() {
     safeSetup('navigation', setupNavigation);
     safeSetup('launchBar', setupLaunchBar);
     safeSetup('windowControls', setupWindowControls);
-    initAllCustomSelects();
     setProgress(15, '正在构建界面...');
 
     try {
@@ -82,13 +81,6 @@ async function init() {
       }
     } catch(e) {}
 
-    safeSetup('tabs', setupTabs);
-    safeSetup('modBrowse', setupModBrowse);
-    safeSetup('accountButtons', setupAccountButtons);
-    safeSetup('versionListClicks', setupVersionListClicks);
-    safeSetup('favSearch', setupFavSearchListeners);
-    // 设置页面初始化（轻量 UI 绑定，不涉及网络请求）
-    safeSetup('settingsPage', setupSettingsPage);
     safeSetup('console', setupConsole);
     setProgress(40, '正在准备主页...');
 
@@ -108,11 +100,20 @@ async function init() {
   // 阶段1：等 Vue 挂载完成（在 splash 覆盖下，用户看不到卡顿）
   setProgress(55, '正在加载界面...');
   await _waitForVueMount();
+  // Vue 挂载会替换页面 DOM，必须在挂载完成后初始化自定义下拉框，否则实例引用的 DOM 已被替换，点击无响应
+  initAllCustomSelects();
+  // Vue 挂载完成后再绑定页面内事件（tab 切换、模组搜索等），避免模板覆盖导致事件丢失
+  safeSetup('tabs', setupTabs);
+  safeSetup('modBrowse', setupModBrowse);
+  safeSetup('accountButtons', setupAccountButtons);
+  safeSetup('versionListClicks', setupVersionListClicks);
+  safeSetup('favSearch', setupFavSearchListeners);
+  safeSetup('settingsPage', setupSettingsPage);
   // Vue 挂载完成后再绑定 Java 页面事件，避免元素不存在
   try { setupJavaPage(); } catch (e) { console.error('Setup failed: javaPage', e); }
 
   // 阶段2：加载核心数据（仍在 splash 覆盖下）
-  setProgress(75, '正在加载数据...');
+  setProgress(70, '正在加载数据...');
   try {
     await Promise.allSettled([
       loadSettings(),
@@ -122,7 +123,38 @@ async function init() {
     ]);
   } catch (e) { console.error('后台数据加载失败:', e); }
 
-  // 阶段3：准备就绪，淡出 splash
+  // 阶段3：加载模组与资源数据（仍在 splash 覆盖下，确保进页面即有内容）
+  setProgress(82, '正在加载模组...');
+  try {
+    await Promise.allSettled([
+      loadModFilterOptions(),
+      loadInstalledMods(),
+      loadFeaturedMods()
+    ]);
+  } catch (e) { console.error('模组数据加载失败:', e); }
+
+  // 阶段4：初始化壁纸与界面元素（仍在 splash 覆盖下）
+  setProgress(90, '正在初始化壁纸...');
+  cacheCommonElements();
+  initWallpaperDropZone();
+  initWallpaperAutoAdapt();
+  if (typeof initWallpaper === 'function') {
+    try {
+      const savedWallpaper = await window.electronAPI?.store?.get('versepc_wallpaper');
+      if (savedWallpaper && savedWallpaper !== 'none') {
+        try { await _lazyLoadScript('js/three.bundle.js'); } catch (_) {}
+        try { initWallpaper(); } catch (e) { console.error('[Wallpaper] init error:', e); }
+        try { await loadWallpaperSettings(); } catch (_) {}
+      }
+    } catch (e) {}
+  }
+
+  // 阶段5：Java 检测 + 游戏状态（仍在 splash 覆盖下）
+  setProgress(96, '正在检查运行环境...');
+  try { await checkJavaOnStartup(); } catch (e) { console.error('Java check failed:', e); }
+  try { await updateGameStatus(); } catch (e) { console.error('Game status failed:', e); }
+
+  // 阶段6：准备就绪，淡出 splash
   setProgress(100, '准备就绪!');
   const elapsed = Date.now() - startTime;
   const remainingMinTime = Math.max(MIN_SPLASH_DURATION - elapsed, 0);
@@ -143,48 +175,10 @@ async function init() {
     try { splashOverlay.remove(); } catch (err) {}
   }
 
-  // splash 完全消失后，启动后台任务（不阻塞用户交互）
-  setTimeout(_afterFirstPaint, 100);
-}
-
-// splash 淡出后启动的后台任务（不阻塞用户交互）
-function _afterFirstPaint() {
-  // Java 检测会在 Worker 线程异步执行，不阻塞主线程
-  setTimeout(() => checkJavaOnStartup(), 5000);
-
-  updateGameStatus();
-
+  // splash 淡出后，仅启动 JVM 预热（纯后台优化，不阻塞用户交互，不显示在界面上）
   setTimeout(() => {
-    triggerJvmPreheat();
-  }, 10000);
-
-  cacheCommonElements();
-
-  if (typeof initWallpaper === 'function') {
-    (async () => {
-      try {
-        const savedWallpaper = await window.electronAPI?.store?.get('versepc_wallpaper');
-        if (savedWallpaper && savedWallpaper !== 'none') {
-          _lazyLoadScript('js/three.bundle.js').then(() => {
-            try { initWallpaper(); } catch (e) { console.error('[Wallpaper] init error:', e); }
-            loadWallpaperSettings();
-          }).catch(() => console.warn('[Wallpaper] THREE.js load failed'));
-        }
-      } catch (e) {}
-    })();
-  }
-
-  initWallpaperDropZone();
-  initWallpaperAutoAdapt();
-
-  // 延迟加载非关键数据
-  setTimeout(() => {
-    Promise.allSettled([
-      loadModFilterOptions(),
-      loadInstalledMods(),
-      loadFeaturedMods()
-    ]).catch(e => console.error('延迟加载失败:', e));
-  }, 100);
+    try { triggerJvmPreheat(); } catch (e) {}
+  }, 2000);
 }
 
 function loadWallpaperSettings() {
@@ -312,19 +306,6 @@ function setupTabs() {
       if (tab === 'release' || tab === 'snapshot' || tab === 'special' || tab === 'old' || tab === 'installed') {
         currentVersionTab = tab;
         renderVersions();
-      } else if (tab === 'installed-mods') {
-        currentModTab = 'installed-mods';
-        const installedPanel = document.getElementById('installed-mods-panel');
-        const browsePanel = document.getElementById('browse-mods-panel');
-        if (installedPanel) installedPanel.style.display = '';
-        if (browsePanel) browsePanel.style.display = 'none';
-        loadInstalledMods();
-      } else if (tab === 'browse-mods') {
-        currentModTab = 'browse-mods';
-        const installedPanel = document.getElementById('installed-mods-panel');
-        const browsePanel = document.getElementById('browse-mods-panel');
-        if (installedPanel) installedPanel.style.display = 'none';
-        if (browsePanel) browsePanel.style.display = '';
       } else if (tab === 'browse-modpacks') {
         loadResourcePage('modpack');
       }

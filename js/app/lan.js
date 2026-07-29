@@ -542,6 +542,37 @@ async function redstoneStart() {
     const publicAccess = document.getElementById('redstone-is-open') ? document.getElementById('redstone-is-open').checked : true;
     const allowOffline = document.getElementById('redstone-allow-offline') ? document.getElementById('redstone-allow-offline').checked : false;
 
+    // 读取当前选中的游戏版本，作为房间描述上传到联机大厅
+    let versionDesc = '';
+    try {
+        const ctxRes = await fetch('/api/current-context');
+        if (ctxRes.ok) {
+            const ctx = await ctxRes.json();
+            if (ctx && ctx.selectedVersion) {
+                const mcVer = ctx.selectedVersion;
+                const loader = ctx.loader || '';
+                const loaderVer = ctx.loaderVersion || '';
+                if (loader && loaderVer) {
+                    let shortLoaderVer = loaderVer;
+                    const m = loaderVer.match(/(\d+\.\d+(?:\.\d+)?)/);
+                    if (m) shortLoaderVer = m[1];
+                    versionDesc = mcVer + ' / ' + loader.charAt(0).toUpperCase() + loader.slice(1) + ' ' + shortLoaderVer;
+                } else if (loader) {
+                    versionDesc = mcVer + ' / ' + loader.charAt(0).toUpperCase() + loader.slice(1);
+                } else {
+                    versionDesc = mcVer + ' / 原版';
+                }
+            }
+        }
+    } catch (e) { addRedstoneLog('读取当前版本失败: ' + e.message); }
+    // 更新页面显示
+    const verBox = document.getElementById('redstone-current-version');
+    if (verBox) {
+        verBox.textContent = versionDesc || '未选择版本';
+        verBox.style.color = versionDesc ? 'var(--text-primary)' : 'var(--text-muted)';
+    }
+    if (versionDesc) addRedstoneLog('当前版本: ' + versionDesc);
+
     _redstoneRunning = true;
     if (btn) { btn.textContent = '正在开启...'; btn.disabled = true; }
     updateRedstoneStatus('正在连接...', 'connecting');
@@ -552,7 +583,7 @@ async function redstoneStart() {
     try {
         const r = await window.electronAPI.redstoneOnline.start({
             serverAddress: server.address, gamePort: gamePort,
-            title: title, publicAccess: publicAccess, allowOffline: allowOffline,
+            title: title, description: versionDesc, publicAccess: publicAccess, allowOffline: allowOffline,
         });
         if (r && r.ok) {
             document.getElementById('redstone-connected-info').style.display = '';
@@ -606,6 +637,41 @@ function addRedstoneLog(msg) {
     const time = new Date().toLocaleTimeString();
     logEl.textContent += '[' + time + '] ' + msg + '\n';
     logEl.scrollTop = logEl.scrollHeight;
+}
+
+/** 读取当前选中的游戏版本并显示在页面上（用于红石联机页面顶部"当前版本"区域） */
+async function redstoneRefreshCurrentVersion() {
+    const verBox = document.getElementById('redstone-current-version');
+    if (!verBox) return;
+    try {
+        const res = await fetch('/api/current-context');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const ctx = await res.json();
+        if (ctx && ctx.selectedVersion) {
+            const mcVer = ctx.selectedVersion;
+            const loader = ctx.loader || '';
+            const loaderVer = ctx.loaderVersion || '';
+            let versionDesc;
+            if (loader && loaderVer) {
+                let shortLoaderVer = loaderVer;
+                const m = loaderVer.match(/(\d+\.\d+(?:\.\d+)?)/);
+                if (m) shortLoaderVer = m[1];
+                versionDesc = mcVer + ' / ' + loader.charAt(0).toUpperCase() + loader.slice(1) + ' ' + shortLoaderVer;
+            } else if (loader) {
+                versionDesc = mcVer + ' / ' + loader.charAt(0).toUpperCase() + loader.slice(1);
+            } else {
+                versionDesc = mcVer + ' / 原版';
+            }
+            verBox.textContent = versionDesc;
+            verBox.style.color = 'var(--text-primary)';
+        } else {
+            verBox.textContent = '未选择版本';
+            verBox.style.color = 'var(--text-muted)';
+        }
+    } catch (e) {
+        verBox.textContent = '读取失败';
+        verBox.style.color = 'var(--text-muted)';
+    }
 }
 
 /** 红石联机页面初始化（由导航跳转触发） */
@@ -665,6 +731,8 @@ async function redstoneInitPage() {
     redstoneSwitchTab('connect');
     redstoneRefreshServers();
     redstoneLoadApikey();
+    // 主动读取当前版本显示在页面上（不阻塞，后台执行）
+    redstoneRefreshCurrentVersion();
     // 监听主进程日志
     if (!window._redstoneLogListener) {
         window._redstoneLogListener = true;

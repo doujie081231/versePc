@@ -104,7 +104,7 @@ const ctx = {
     NEOFORGE_API_URL: 'https://maven.neoforged.net/api/maven',
     TEMURIN_API: 'https://api.adoptium.net/v3',
     LIBERICA_BASE: 'https://download.bell-sw.com/java/',
-    MS_CLIENT_ID: '9c1f1f43-58d5-4b7a-af0d-4e487f073441'
+    MS_CLIENT_ID: 'b5b442d7-5978-4637-a81e-88faf9bfc8a6'
   },
 
   mirrors: {
@@ -118,7 +118,25 @@ const ctx = {
       'https://meta.fabricmc.net/': 'https://bmclapi2.bangbang93.com/fabric-meta/',
       'https://maven.minecraftforge.net/': 'https://bmclapi2.bangbang93.com/maven/',
       'https://maven.neoforged.net/': 'https://bmclapi2.bangbang93.com/maven/',
-      'https://maven.fabricmc.net/': 'https://bmclapi2.bangbang93.com/maven/'
+      'https://maven.fabricmc.net/': 'https://bmclapi2.bangbang93.com/maven/',
+      // [关键修复 - 2026-07-27] Modrinth CDN 国内镜像
+      // 问题：cdn.modrinth.com 会 307 重定向到 cdn-alt.modrinth.com（203.10.96.211），
+      //   国内速度仅 22KB/s，导致 BMC4 整合包（含 90MB betterend）下载需 70 分钟，
+      //   远超 15 分钟限制。stall 检测和重试只能避免卡死，不能解决速度问题。
+      // 方案：添加 mcimirror.top 镜像（公益服务，由 Pysio 提供 Cloudflare CDN）。
+      //   镜像 URL 格式：cdn.modrinth.com/data/... → mod.mcimirror.top/data/...
+      //   镜像不会 307 重定向，直接返回 200，速度可达 10MB/s+。
+      //   参考：https://github.com/mcmod-info-mirror/mcim-api
+      'https://cdn.modrinth.com/': 'https://mod.mcimirror.top/',
+      'https://cdn-alt.modrinth.com/': 'https://mod.mcimirror.top/',
+      // Mod API 镜像：mcimirror.top 同时代理 Modrinth/CurseForge API
+      'https://api.modrinth.com/': 'https://mod.mcimirror.top/modrinth/',
+      'https://staging-api.modrinth.com/': 'https://mod.mcimirror.top/modrinth/',
+      'https://api.curseforge.com/': 'https://mod.mcimirror.top/curseforge/',
+      // CurseForge CDN 镜像：国内直连 forgecdn 速度极慢且易断
+      'https://edge.forgecdn.net/': 'https://mod.mcimirror.top/',
+      'https://mediafilez.forgecdn.net/': 'https://mod.mcimirror.top/',
+      'https://media.forgecdn.net/': 'https://mod.mcimirror.top/'
     },
     MCIM_MIRROR: {},
     JAVA_DOWNLOAD_MIRRORS: [
@@ -177,7 +195,16 @@ const ctx = {
     _steveSkinFullPromise: null,
     dnsCache: new Map(),
     DNS_CACHE_TTL: 60000,
-    dirCache: new Set()
+    dirCache: new Set(),
+    // 连接耗时统计：用于自适应超时
+    // connectTimes 记录最近 20 次连接建立耗时（ms），connectAvg 为移动平均
+    // 自适应超时 = clamp(connectAvg * 4, 15s, 60s) * (1 + 失败次数 * 0.5)
+    _connectTimeSamples: [],
+    _CONNECT_SAMPLES_MAX: 20,
+    _connectAvg: 1500,
+    // DNS 失败缓存：1 分钟内同 host 不重复解析，避免断网时异常堆积
+    _dnsFailCache: new Map(),
+    _DNS_FAIL_CACHE_TTL: 60000
   },
 
   // 会话状态

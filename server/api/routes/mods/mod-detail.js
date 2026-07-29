@@ -14,7 +14,7 @@ module.exports = {
    */
   register(registerRoute, deps) {
     const {
-      sendJSON, sendError, readBody, http, versions,
+      sendJSON, sendError, readBody, http, versions, utils,
       MODRINTH_API, CURSEFORGE_API
     } = extractDeps(deps);
 
@@ -123,7 +123,7 @@ module.exports = {
             title: project.title,
             description: project.description || '',
             body: project.body || '',
-            icon: project.icon_url || '',
+            icon: utils.applyImageMirror(project.icon_url) || '',
             downloads: project.downloads || 0,
             followers: project.followers || 0,
             categories: project.categories || [],
@@ -154,7 +154,7 @@ module.exports = {
             title: mod.name || 'Unknown',
             description: mod.summary || '',
             body: mod.description || mod.summary || '',
-            icon: mod.logo?.url || '',
+            icon: utils.applyImageMirror(mod.logo?.url) || '',
             downloads: mod.downloadCount || 0,
             followers: mod.followers || mod.thumbsUpCount || 0,
             categories: (mod.categories || []).map((c) => typeof c === 'string' ? c : c.name || ''),
@@ -242,6 +242,19 @@ module.exports = {
               modName: d.project_id || ''
             }))
           }));
+          // 按版本号降序排序（去掉 v/V 前缀后按数字比较，相同版本号按发布日期降序）
+          result.sort((a, b) => {
+            const aNum = ((a.versionNumber || a.versionName || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+            const bNum = ((b.versionNumber || b.versionName || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+            for (let i = 0; i < Math.max(aNum.length, bNum.length); i++) {
+              const aVal = aNum[i] || 0;
+              const bVal = bNum[i] || 0;
+              if (aVal !== bVal) return bVal - aVal;
+            }
+            const aDate = new Date(a.datePublished || 0).getTime();
+            const bDate = new Date(b.datePublished || 0).getTime();
+            return bDate - aDate;
+          });
           sendJSON(res, { versions: result });
         } else if (mvSource === 'curseforge') {
           const settings = versions.loadSettingsCached();
@@ -318,6 +331,19 @@ module.exports = {
           } catch (e) {
             console.warn(`[CurseForge] 获取版本列表失败: ${e.message}`);
           }
+          // 按版本号降序排序（去掉 v/V 前缀后按数字比较，相同版本号按发布日期降序）
+          cfVersions.sort((a, b) => {
+            const aNum = ((a.versionNumber || a.versionName || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+            const bNum = ((b.versionNumber || b.versionName || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+            for (let i = 0; i < Math.max(aNum.length, bNum.length); i++) {
+              const aVal = aNum[i] || 0;
+              const bVal = bNum[i] || 0;
+              if (aVal !== bVal) return bVal - aVal;
+            }
+            const aDate = new Date(a.datePublished || 0).getTime();
+            const bDate = new Date(b.datePublished || 0).getTime();
+            return bDate - aDate;
+          });
           sendJSON(res, { versions: cfVersions });
         } else {
           sendError(res, 'Unsupported source', 400);

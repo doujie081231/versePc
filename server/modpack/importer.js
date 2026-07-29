@@ -25,6 +25,8 @@ const { _importCurseForge } = require('./curseforge');
  */
 async function importModpackFromPath(filePath, onProgress, targetVersion = '', abortSignal = null) {
     const stageHistory = [];
+    let _lastFilesSnapshot = null;
+    let _lastFilesKey = '';
     const progress = (stage, message, pct, files, currentFile) => {
         const existingIdx = stageHistory.findIndex(s => s.stage === stage);
         if (existingIdx >= 0) {
@@ -34,7 +36,27 @@ async function importModpackFromPath(filePath, onProgress, targetVersion = '', a
             stageHistory.push({ stage, message, progress: pct });
         }
         utils._writeImportLog(`[进度] ${stage} ${Math.round(pct)}% - ${message || ''} ${currentFile ? '(' + currentFile + ')' : ''}`);
-        const filesSnapshot = files ? files.slice(0, Math.min(files.length, 200)).map(f => ({ n: f.name, s: f.status, p: f.progress || 0, e: f.error || '', sp: f.speed || 0 })) : [];
+        // files 深拷贝很耗时（200 个对象），仅在文件状态变化时才重新生成
+        // 用 doneCount+inFlight 作为缓存 key，未变化则复用上次快照
+        let filesSnapshot = [];
+        if (files && files.length > 0) {
+            let cacheKey = '';
+            if (stage === 'mods') {
+                // mods 阶段：用完成数+进行中数作为 key，未变化则复用
+                const doneCount = files.filter(f => f.status === 'completed' || f.status === 'failed').length;
+                const downloadingCount = files.filter(f => f.status === 'downloading').length;
+                cacheKey = `${doneCount}-${downloadingCount}`;
+            } else {
+                cacheKey = `full-${Date.now()}`;
+            }
+            if (cacheKey === _lastFilesKey && _lastFilesSnapshot) {
+                filesSnapshot = _lastFilesSnapshot;
+            } else {
+                filesSnapshot = files.slice(0, Math.min(files.length, 200)).map(f => ({ n: f.name, s: f.status, p: f.progress || 0, e: f.error || '', sp: f.speed || 0 }));
+                _lastFilesSnapshot = filesSnapshot;
+                _lastFilesKey = cacheKey;
+            }
+        }
         const stagesSnapshot = stageHistory.map(s => ({ stage: s.stage, message: s.message, progress: s.progress }));
         if (typeof onProgress === 'function') onProgress({ stage, message, progress: pct, files: filesSnapshot, currentFile: currentFile || '', stageHistory: stagesSnapshot });
     };

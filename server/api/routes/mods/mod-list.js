@@ -17,7 +17,7 @@ module.exports = {
    */
   register(registerRoute, deps) {
     const {
-      sendJSON, sendError, mods, http, versions,
+      sendJSON, sendError, mods, http, versions, utils,
       MODRINTH_API, ICON_CACHE_DIR, DATA_DIR
     } = extractDeps(deps);
 
@@ -157,7 +157,7 @@ module.exports = {
         const result = await http.fetchJSON(featUrl);
         const hits = (result.hits || []).map((hit) => ({
           id: hit.project_id, slug: hit.slug, title: hit.title,
-          description: hit.description || '', icon: hit.icon_url || '',
+          description: hit.description || '', icon: utils.applyImageMirror(hit.icon_url) || '',
           downloads: hit.downloads || 0, author: (hit.author || '').replace(/_/g, ''),
           categories: hit.categories || [], source: 'modrinth'
         }));

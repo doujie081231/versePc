@@ -9,7 +9,6 @@ const PageMods = {
           <div class="page-header">
             <div class="tab-group" style="display:flex;gap:8px;margin-right:auto;">
               <button class="tab-btn active" data-tab="browse-mods">浏览模组</button>
-              <button class="tab-btn" data-tab="installed-mods">已安装模组 (<span id="stat-mods">0</span>)</button>
             </div>
             <div class="page-actions">
               <button class="btn btn-secondary btn-sm" id="mod-multiselect-toggle" onclick="toggleModMultiSelect()">
@@ -163,11 +162,6 @@ const PageMods = {
                 <p style="font-size:15px;margin-bottom:8px">还没有收藏内容</p>
                 <p style="font-size:13px">在模组搜索页面点击心形按钮收藏模组</p>
               </div>
-            </div>
-          </div>
-          <div id="installed-mods-panel" class="mod-panel" style="display:none">
-            <div id="installed-mods-list" class="mod-list">
-              <div class="loading-spinner"><div class="spinner"></div></div>
             </div>
           </div>
   `

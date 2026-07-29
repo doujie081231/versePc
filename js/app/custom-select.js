@@ -337,6 +337,14 @@ function initAllCustomSelects() {
             { value: '512x', text: '512x' }
         ]);
     }
+
+    // 开服页面版本选择器（选项由 serverHostRefreshVersions 动态填充）
+    if (!customSelectInstances['server-host-version']) {
+        customSelectInstances['server-host-version'] = new CustomSelect('server-host-version-wrapper', {
+            onChange: () => { if (typeof serverHostDetectLoader === 'function') serverHostDetectLoader(); }
+        });
+        customSelectInstances['server-host-version'].setOptions([{ value: '', text: '加载中...' }]);
+    }
 }
 
 function getCustomSelectValue(id) {

@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { extractDeps } = require('./shared');
 
 module.exports = {
@@ -181,16 +182,54 @@ module.exports = {
 
     /* /api/mods/download-version - 下载指定版本的模组（含前置依赖自动下载） */
     registerRoute('POST', '/api/mods/download-version', async (req, res, parsedUrl) => {
-      // 检查模组是否已安装（按文件名/项目 slug 匹配）
-      function isModAlreadyInstalled(modsDir, depFileName, depProjectId) {
+      // 检查模组是否已安装：优先精确校验（大小 + SHA1），无则回退到文件名/项目 slug 匹配
+      function isModAlreadyInstalled(modsDir, depFileName, depProjectId, expectedSize, expectedSha1) {
         if (!modsDir || !fs.existsSync(modsDir)) return false;
+
+        // 1. 精确校验：按文件名定位候选文件，比较大小和 SHA1
+        if (expectedSize || expectedSha1) {
+          const candidates = [
+            path.join(modsDir, depFileName),
+            path.join(modsDir, depFileName + '.disabled')
+          ];
+          for (const p of candidates) {
+            if (!fs.existsSync(p)) continue;
+            try {
+              const stat = fs.statSync(p);
+              // 大小不一致直接跳过
+              if (expectedSize && stat.size !== expectedSize) continue;
+              // 提供 SHA1 时必须匹配
+              if (expectedSha1) {
+                const hash = crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
+                if (hash.toLowerCase() !== String(expectedSha1).toLowerCase()) continue;
+              }
+              return true;
+            } catch (e) {}
+          }
+        }
+
+        // 2. 文件名精确匹配
         const exactPath = path.join(modsDir, depFileName);
         if (fs.existsSync(exactPath)) return true;
         const disabledPath = exactPath + '.disabled';
         if (fs.existsSync(disabledPath)) return true;
+
+        // 3. 仅有大小时：按文件大小匹配
+        if (expectedSize) {
+          try {
+            const existingFiles = fs.readdirSync(modsDir).filter((f) => f.endsWith('.jar') || f.endsWith('.jar.disabled'));
+            for (const f of existingFiles) {
+              try {
+                const stat = fs.statSync(path.join(modsDir, f));
+                if (stat.size === expectedSize) return true;
+              } catch (e) {}
+            }
+          } catch (e) {}
+        }
+
+        // 4. 兜底：去除版本号后比较基础名
         try {
           const existingFiles = fs.readdirSync(modsDir).filter((f) => f.endsWith('.jar') || f.endsWith('.jar.disabled'));
-          // 去除版本号后比较基础名
           const baseName = depFileName.replace(/\.jar$/i, '').replace(/[-_](v?\d[\w.\-]*)$/i, '').toLowerCase();
           for (const f of existingFiles) {
             const fLower = f.toLowerCase();
@@ -208,6 +247,48 @@ module.exports = {
           }
         } catch (e) {}
         return false;
+      }
+
+      // 递归解析 CurseForge 必需依赖（最多 2 层深度，避免无限递归）
+      // 返回需要下载的依赖文件列表，已安装的依赖会被跳过
+      async function resolveCurseForgeDeps(cfFileData, destDir, cfHeaders, dvGameVersion, depth, visited) {
+        const results = [];
+        if (depth >= 2) return results; // 最多 2 层深度
+
+        const cfDeps = cfFileData.dependencies || [];
+        // 仅处理 relationType === 3 的必需依赖
+        const requiredDeps = cfDeps.filter((d) => d.relationType === 3 && d.modId);
+
+        for (const dep of requiredDeps) {
+          const depModIdStr = String(dep.modId);
+          // 避免循环依赖
+          if (visited.has(depModIdStr)) continue;
+          visited.add(depModIdStr);
+
+          try {
+            // 调用 CurseForge API 获取依赖的最新兼容文件
+            let depFileUrl = `${CURSEFORGE_API}/mods/${dep.modId}/files?pageSize=5`;
+            if (dvGameVersion) depFileUrl += `&gameVersion=${encodeURIComponent(dvGameVersion)}`;
+            const depFiles = await http.fetchJSON(depFileUrl, cfHeaders);
+            const depFile = depFiles?.data?.[0];
+            if (depFile && depFile.downloadUrl) {
+              const depName = depFile.fileName;
+              const depDest = path.join(destDir, depName);
+              // CurseForge hashes 数组：algo 1 = sha1, 2 = md5
+              const depSha1 = depFile.hashes?.find((h) => h.algo === 1)?.value;
+              const depSize = depFile.fileLength || 0;
+              if (!isModAlreadyInstalled(destDir, depName, depModIdStr, depSize, depSha1)) {
+                results.push({ url: depFile.downloadUrl, fileName: depName, dest: depDest, size: depSize });
+              }
+              // 递归解析下一层依赖
+              const subResults = await resolveCurseForgeDeps(depFile, destDir, cfHeaders, dvGameVersion, depth + 1, visited);
+              results.push(...subResults);
+            }
+          } catch (e) {
+            console.warn(`[ModDownload] CurseForge依赖查询失败: modId=${dep.modId} - ${e.message}`);
+          }
+        }
+        return results;
       }
 
       const dvData = await readBody(req);
@@ -322,10 +403,12 @@ module.exports = {
                     const depFile = depVersionData.files.find((f) => f.primary) || depVersionData.files[0];
                     const depName = depFile.filename;
                     const depDest = path.join(destDir, depName);
-                    // 已安装的依赖跳过下载
-                    if (isModAlreadyInstalled(destDir, depName, dep.project_id)) {
+                    // 已安装的依赖跳过下载（精确校验大小 + SHA1）
+                    const depSha1 = depFile.hashes?.sha1;
+                    const depSize = depFile.size || 0;
+                    if (isModAlreadyInstalled(destDir, depName, dep.project_id, depSize, depSha1)) {
                     } else {
-                      depDownloads.push({ url: depFile.url, fileName: depName, dest: depDest, size: depFile.size || 0 });
+                      depDownloads.push({ url: depFile.url, fileName: depName, dest: depDest, size: depSize });
                     }
                   }
                 } catch (e) {}
@@ -346,27 +429,33 @@ module.exports = {
 
           sendJSON(res, { success: true, sessionId, fileName: safeName });
 
-          // 后台异步下载：先下载所有依赖，再下载本体
+          // 后台异步下载：先并行下载所有依赖，再下载本体
           (async () => {
             try {
-              for (let di = 0; di < depDownloads.length; di++) {
-                const dep = depDownloads[di];
-                const session = modDownloadSessions.get(sessionId);
-                if (session) {
-                  session.currentDep = di + 1;
-                  session.message = `下载前置依赖 (${di + 1}/${depDownloads.length}): ${dep.fileName}`;
-                }
-                await http.downloadFile(dep.url, dep.dest, (depProgress) => {
+              // 并行下载所有依赖（单个失败不阻塞其他依赖）
+              let completedDeps = 0;
+              const depPromises = depDownloads.map((dep) => {
+                return http.downloadFile(dep.url, dep.dest, (depProgress) => {
                   const s = modDownloadSessions.get(sessionId);
                   if (s) {
-                    // 按步骤权重计算总进度
-                    const depBase = Math.round((di / totalSteps) * 100);
+                    // 按已完成依赖数 + 当前依赖进度计算总进度
+                    const baseProgress = (completedDeps / totalSteps) * 100;
                     const depWeight = 100 / totalSteps;
-                    s.progress = Math.min(99, depBase + Math.round(depProgress.progress * depWeight / 100));
-                    s.message = `下载前置依赖 (${di + 1}/${depDownloads.length}): ${dep.fileName} ${depProgress.progress.toFixed(0)}%`;
+                    s.progress = Math.min(99, Math.round(baseProgress + depProgress.progress * depWeight / 100));
+                    s.message = `下载前置依赖: ${dep.fileName} ${depProgress.progress.toFixed(0)}%`;
                   }
-                }, 2);
-              }
+                }, 2).then(() => {
+                  completedDeps++;
+                  const s = modDownloadSessions.get(sessionId);
+                  if (s) {
+                    s.currentDep = completedDeps;
+                    s.progress = Math.min(99, Math.round((completedDeps / totalSteps) * 100));
+                  }
+                }).catch((e) => {
+                  console.warn(`[mods/download] 依赖下载失败: ${dep.fileName} - ${e.message}`);
+                });
+              });
+              await Promise.all(depPromises);
 
               // 下载本体
               const session = modDownloadSessions.get(sessionId);
@@ -435,30 +524,13 @@ module.exports = {
 
           if (!downloadUrl) { sendError(res, 'CurseForge 未提供下载链接（可能需要浏览器下载）'); return; }
 
-          // 收集 CurseForge 前置依赖
-          const depDownloads = [];
+          // 收集 CurseForge 前置依赖（递归解析，最多 2 层深度）
+          let depDownloads = [];
           if (dvIncludeDeps) {
-            const cfDeps = cfFileData.dependencies || [];
-            const requiredDeps = cfDeps.filter((d) => (d.relationType === 3 || d.relationType === 5) && d.modId);
-            for (const dep of requiredDeps) {
-              try {
-                const depModInfo = await http.fetchJSON(`${CURSEFORGE_API}/mods/${dep.modId}`, cfHeaders);
-                let depFileUrl = `${CURSEFORGE_API}/mods/${dep.modId}/files?pageSize=5`;
-                if (dvGameVersion) depFileUrl += `&gameVersion=${encodeURIComponent(dvGameVersion)}`;
-                const depFiles = await http.fetchJSON(depFileUrl, cfHeaders);
-                const depFile = depFiles?.data?.[0];
-                if (depFile && depFile.downloadUrl) {
-                  const depName = depFile.fileName;
-                  const depDest = path.join(destDir, depName);
-                  if (isModAlreadyInstalled(destDir, depName, String(dep.modId))) {
-                  } else {
-                    depDownloads.push({ url: depFile.downloadUrl, fileName: depName, dest: depDest, size: depFile.fileLength || 0 });
-                  }
-                }
-              } catch (e) {
-                console.warn(`[ModDownload] CurseForge依赖查询失败: modId=${dep.modId} - ${e.message}`);
-              }
-            }
+            // 用 visited 集合避免循环依赖，将本体 modId 加入避免自引用
+            const visited = new Set();
+            if (dvProjectId) visited.add(String(dvProjectId));
+            depDownloads = await resolveCurseForgeDeps(cfFileData, destDir, cfHeaders, dvGameVersion, 0, visited);
           }
 
           const safeName = (fileName || `${dvProjectId}.jar`).replace(/[^a-zA-Z0-9._\-]/g, '_');
@@ -474,26 +546,33 @@ module.exports = {
 
           sendJSON(res, { success: true, sessionId, fileName: safeName });
 
-          // 后台异步下载：先依赖后本体
+          // 后台异步下载：先并行下载所有依赖，再下载本体
           (async () => {
             try {
-              for (let di = 0; di < depDownloads.length; di++) {
-                const dep = depDownloads[di];
-                const session = modDownloadSessions.get(sessionId);
-                if (session) {
-                  session.currentDep = di + 1;
-                  session.message = `下载前置依赖 (${di + 1}/${depDownloads.length}): ${dep.fileName}`;
-                }
-                await http.downloadFile(dep.url, dep.dest, (depProgress) => {
+              // 并行下载所有依赖（单个失败不阻塞其他依赖）
+              let completedDeps = 0;
+              const depPromises = depDownloads.map((dep) => {
+                return http.downloadFile(dep.url, dep.dest, (depProgress) => {
                   const s = modDownloadSessions.get(sessionId);
                   if (s) {
-                    const depBase = Math.round((di / totalSteps) * 100);
+                    // 按已完成依赖数 + 当前依赖进度计算总进度
+                    const baseProgress = (completedDeps / totalSteps) * 100;
                     const depWeight = 100 / totalSteps;
-                    s.progress = Math.min(99, depBase + Math.round(depProgress.progress * depWeight / 100));
-                    s.message = `下载前置依赖 (${di + 1}/${depDownloads.length}): ${dep.fileName} ${depProgress.progress.toFixed(0)}%`;
+                    s.progress = Math.min(99, Math.round(baseProgress + depProgress.progress * depWeight / 100));
+                    s.message = `下载前置依赖: ${dep.fileName} ${depProgress.progress.toFixed(0)}%`;
                   }
-                }, 2);
-              }
+                }, 2).then(() => {
+                  completedDeps++;
+                  const s = modDownloadSessions.get(sessionId);
+                  if (s) {
+                    s.currentDep = completedDeps;
+                    s.progress = Math.min(99, Math.round((completedDeps / totalSteps) * 100));
+                  }
+                }).catch((e) => {
+                  console.warn(`[mods/download] 依赖下载失败: ${dep.fileName} - ${e.message}`);
+                });
+              });
+              await Promise.all(depPromises);
 
               const session = modDownloadSessions.get(sessionId);
               if (session) {

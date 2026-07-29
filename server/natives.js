@@ -636,28 +636,15 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
     const nameSuffix = libName ? libName.split(':').pop() : '';
 
     // NeoForge: neoforge:*:client 是虚拟库记录（官方 Maven 返回 404，不可直接下载）
-    // 实际启动用的是 minecraft-client-patched-<ver>.jar（installer 本地生成）
-    // 此处跳过虚拟库记录的常规查找（避免 fallback 到 universal jar），改为主动查找 patched jar
+    // 不把 patched/universal jar 加入 classpath。
+    // 参考：classpath 中不包含 neoforge-*-client.jar 和 minecraft-client-patched-*.jar。
+    // 这些 jar 由 NeoForge 的 ProductionClientProviderLocator 通过 -DlibraryDirectory +
+    // --fml.neoForgeVersion 参数自动查找并加载（SRG client jar 作为 minecraft 模块，
+    // patched jar 作为 minecraft.client.patched 模块）。
+    // 手动加入 classpath 会导致 JPMS 冲突：
+    // "Modules minecraft and minecraft.client.patched export package net.minecraft.client.model to module flickerfix"
+    // 因为 patched jar 同时在 classpath（unnamed module）和 module path 上被解析
     if (libName.startsWith('net.neoforged:neoforge:') && libName.endsWith(':client')) {
-      const neoVer = libName.split(':')[2];
-      // 优先新命名：minecraft-client-patched-<ver>.jar
-      const patchedRelPath = `net/neoforged/minecraft-client-patched/${neoVer}/minecraft-client-patched-${neoVer}.jar`;
-      const patchedPath = findLibFile(patchedRelPath);
-      if (patchedPath) {
-        classpath.push(patchedPath);
-        foundCount++;
-      } else {
-        // 回退旧命名：neoforge-<ver>-client.jar（NeoForge 21.1.2xx 早期版本）
-        const oldPatchedRelPath = `net/neoforged/neoforge/${neoVer}/neoforge-${neoVer}-client.jar`;
-        const oldPatchedPath = findLibFile(oldPatchedRelPath);
-        if (oldPatchedPath) {
-          classpath.push(oldPatchedPath);
-          foundCount++;
-        } else {
-          missingCount++;
-          missingList.push(libName);
-        }
-      }
       continue;
     }
 
@@ -722,6 +709,13 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
               const libName = lib.name || '';
               const nameSuffix = libName ? libName.split(':').pop() : '';
               if (lib.natives && !lib.downloads?.artifact?.path) continue;
+              // NeoForge: 跳过 neoforge:ver:client（已由合并后的当前版本 libraries 处理，
+              // 添加的是 minecraft-client-patched-<ver>.jar。若此处再次处理会通过
+              // downloads.artifact.path 添加 neoforge-<ver>-client.jar，导致 JPMS 冲突：
+              // "Module xnet reads more than one module named neoforge"，
+              // 因为 neoforge-<ver>-client.jar 和 locator 加载的 neoforge-<ver>-universal.jar
+              // 都会被 JPMS 解析为同名 'neoforge' 自动模块）
+              if (libName.startsWith('net.neoforged:neoforge:') && libName.endsWith(':client')) continue;
               if (nameSuffix.startsWith('natives-')) {
                 let isValidPlatform = false;
                 const platformNative = nameSuffix.replace('natives-', '');
@@ -764,6 +758,13 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
         const libName = lib.name || '';
         const nameSuffix = libName ? libName.split(':').pop() : '';
         if (lib.natives && !lib.downloads?.artifact?.path) continue;
+        // NeoForge: 跳过 neoforge:ver:client（已由合并后的当前版本 libraries 处理，
+        // 添加的是 minecraft-client-patched-<ver>.jar。若此处再次处理会通过
+        // downloads.artifact.path 添加 neoforge-<ver>-client.jar，导致 JPMS 冲突：
+        // "Module xnet reads more than one module named neoforge"，
+        // 因为 neoforge-<ver>-client.jar 和 locator 加载的 neoforge-<ver>-universal.jar
+        // 都会被 JPMS 解析为同名 'neoforge' 自动模块）
+        if (libName.startsWith('net.neoforged:neoforge:') && libName.endsWith(':client')) continue;
         if (nameSuffix.startsWith('natives-')) {
           let isValidPlatform = false;
           const platformNative = nameSuffix.replace('natives-', '');
@@ -894,7 +895,7 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
   // universal jar 由 NeoForge 的 ProductionClientProviderLocator 通过
   // -DlibraryDirectory + --fml.neoForgeVersion 参数自动查找并加载为 mod。
   // 若手动加入 classpath，PathBasedLocator 会跳过它（"already located earlier"），
-  // 导致 neoforge mod 不被加载。参考 PCL 启动命令：classpath 不含 universal jar。
+  // 导致 neoforge mod 不被加载。参考：classpath 不含 universal jar。
   // -- 旧兜底逻辑已移除（曾通过 versionId 正则提取版本号添加 universal jar，但中文
   // versionId 不匹配正则，且与 -DlibraryDirectory 机制冲突）。
 

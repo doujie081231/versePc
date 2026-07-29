@@ -28,6 +28,12 @@ const INDEX_FILE = path.join(SERVERS_ROOT, 'index.json');
 /** @type {Map<string, {proc: import('child_process').ChildProcess, dir: string, name: string, port: number, starting: boolean}>} */
 const _running = new Map();
 
+/**
+ * 当前正在进行的创建任务状态（用于取消）
+ * @type {{aborted: boolean, proc: import('child_process').ChildProcess|null, req: import('http').ClientRequest|null}}
+ */
+let _activeCreate = { aborted: false, proc: null, req: null };
+
 function ensureRoot() {
   fs.mkdirSync(SERVERS_ROOT, { recursive: true });
   if (!fs.existsSync(INDEX_FILE)) {
@@ -331,14 +337,16 @@ function resolvedBase(versionId) {
   return (r && r.versionId) || versionId;
 }
 
-function runJavaJar(javaPath, args, cwd, onLine, timeoutMs = 600000) {
+function runJavaJar(javaPath, args, cwd, onLine, timeoutMs = 600000, abortRef) {
   return new Promise((resolve, reject) => {
+    if (abortRef && abortRef.aborted) return reject(new Error('已取消'));
     const proc = spawn(javaPath, args, {
       cwd,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env }
     });
+    if (abortRef) abortRef.proc = proc;
     let out = '';
     const onData = (buf) => {
       const text = buf.toString('utf8');
@@ -359,20 +367,26 @@ function runJavaJar(javaPath, args, cwd, onLine, timeoutMs = 600000) {
     });
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (abortRef && abortRef.aborted) {
+        reject(new Error('已取消'));
+        return;
+      }
       if (code === 0) resolve({ code, out });
       else reject(new Error(`进程退出码 ${code}\n${out.slice(-800)}`));
     });
   });
 }
 
-async function downloadWithFallback(urls, destPath, onProgress, onLog) {
+async function downloadWithFallback(urls, destPath, onProgress, onLog, abortRef) {
   let lastErr = null;
   for (const url of urls) {
+    if (abortRef && abortRef.aborted) throw new Error('已取消');
     try {
       if (onLog) onLog(`[VersePC] 下载: ${url}`);
-      await downloadFile(url, destPath, onProgress);
+      await downloadFile(url, destPath, onProgress, abortRef);
       if (fs.existsSync(destPath) && fs.statSync(destPath).size > 1024) return url;
     } catch (e) {
+      if (abortRef && abortRef.aborted) throw e;
       lastErr = e;
       if (onLog) onLog(`[VersePC] 下载失败: ${e.message}`);
       try { if (fs.existsSync(destPath)) fs.unlinkSync(destPath); } catch (_) {}
@@ -458,6 +472,7 @@ async function installModdedServer(entry, loaderInfo, opts = {}) {
   const javaPick = await findJavaForServer(requiredMajor, (m) => emitLog(id, m));
   const javaPath = javaPick.javaPath;
   const syncMods = opts.syncMods !== false;
+  const abortRef = opts.abortRef || _activeCreate;
 
   if (loaderInfo.loader === 'forge' || loaderInfo.loader === 'neoforge') {
     const isNeo = loaderInfo.loader === 'neoforge';
@@ -489,16 +504,17 @@ async function installModdedServer(entry, loaderInfo, opts = {}) {
         message: `下载安装器 ${Math.round(p.progress)}%`,
         stage: 'installer'
       });
-    }, (line) => emitLog(id, line));
+    }, (line) => emitLog(id, line), abortRef);
 
     emitStatus(id, 'installing', { progress: null, indeterminate: true, message: `正在安装 ${isNeo ? 'NeoForge' : 'Forge'} 服务端...`, stage: 'install' });
     emitLog(id, `[VersePC] 运行安装器: ${javaPath} -jar ${installerName} --installServer`);
 
     try {
-      await runJavaJar(javaPath, ['-jar', installerName, '--installServer', dir], dir, (line) => emitLog(id, line), 900000);
+      await runJavaJar(javaPath, ['-jar', installerName, '--installServer', dir], dir, (line) => emitLog(id, line), 900000, abortRef);
     } catch (e1) {
+      if (abortRef && abortRef.aborted) throw e1;
       emitLog(id, `[VersePC] 安装器参数回退: --installServer (${e1.message})`);
-      await runJavaJar(javaPath, ['-jar', installerName, '--installServer'], dir, (line) => emitLog(id, line), 900000);
+      await runJavaJar(javaPath, ['-jar', installerName, '--installServer'], dir, (line) => emitLog(id, line), 900000, abortRef);
     }
 
     entry.loader = loaderInfo.loader;
@@ -536,7 +552,7 @@ async function installModdedServer(entry, loaderInfo, opts = {}) {
         message: `下载 Fabric 安装器 ${Math.round(p.progress)}%`,
         stage: 'installer'
       });
-    }, (line) => emitLog(id, line));
+    }, (line) => emitLog(id, line), abortRef);
 
     emitStatus(id, 'installing', { progress: null, indeterminate: true, message: '正在安装 Fabric 服务端...', stage: 'install' });
     emitLog(id, `[VersePC] Fabric server -mcversion ${mc} -loader ${loaderVer}`);
@@ -547,7 +563,7 @@ async function installModdedServer(entry, loaderInfo, opts = {}) {
       '-loader', loaderVer,
       '-dir', dir,
       '-downloadMinecraft'
-    ], dir, (line) => emitLog(id, line), 900000);
+    ], dir, (line) => emitLog(id, line), 900000, abortRef);
 
     entry.loader = 'fabric';
     entry.loaderVersion = loaderVer;
@@ -680,10 +696,12 @@ async function syncClientModsToServer(entry, onProgress) {
 }
 
 
-function downloadFile(url, destPath, onProgress) {
+function downloadFile(url, destPath, onProgress, abortRef) {
   return new Promise((resolve, reject) => {
+    if (abortRef && abortRef.aborted) return reject(new Error('已取消'));
     const doGet = (u, redirects = 0) => {
       if (redirects > 8) return reject(new Error('下载重定向过多'));
+      if (abortRef && abortRef.aborted) return reject(new Error('已取消'));
       let parsed;
       try { parsed = new URL(u); } catch (e) { return reject(e); }
       const lib = parsed.protocol === 'https:' ? https : http;
@@ -691,6 +709,11 @@ function downloadFile(url, destPath, onProgress) {
         headers: { 'User-Agent': 'VersePC/1.0 (ServerHost)' },
         timeout: 120000
       }, (res) => {
+        if (abortRef && abortRef.aborted) {
+          res.resume();
+          try { req.destroy(); } catch (_) {}
+          return reject(new Error('已取消'));
+        }
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           return doGet(res.headers.location, redirects + 1);
@@ -705,6 +728,13 @@ function downloadFile(url, destPath, onProgress) {
         const ws = fs.createWriteStream(tmp);
         const hash = crypto.createHash('sha1');
         res.on('data', (c) => {
+          if (abortRef && abortRef.aborted) {
+            try { res.destroy(); } catch (_) {}
+            try { ws.destroy(); } catch (_) {}
+            try { req.destroy(); } catch (_) {}
+            try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+            return reject(new Error('已取消'));
+          }
           done += c.length;
           hash.update(c);
           if (onProgress && total > 0) {
@@ -726,6 +756,7 @@ function downloadFile(url, destPath, onProgress) {
         ws.on('error', reject);
         res.on('error', reject);
       });
+      if (abortRef) abortRef.req = req;
       req.on('error', reject);
       req.on('timeout', () => { try { req.destroy(); } catch (_) {} reject(new Error('下载超时')); });
     };
@@ -1041,7 +1072,27 @@ function listLocalIps() {
   return ips;
 }
 
+/**
+ * 取消正在进行的创建任务
+ * 设置取消标志、终止 Java 安装器进程、销毁下载请求
+ */
+function cancelCreate() {
+  _activeCreate.aborted = true;
+  if (_activeCreate.proc) {
+    try { _activeCreate.proc.kill(); } catch (_) {}
+    _activeCreate.proc = null;
+  }
+  if (_activeCreate.req) {
+    try { _activeCreate.req.destroy(); } catch (_) {}
+    _activeCreate.req = null;
+  }
+  return true;
+}
+
 async function createOrUpdateServer(opts) {
+  // 重置取消标志，开始新的创建任务
+  _activeCreate = { aborted: false, proc: null, req: null };
+  const abortRef = _activeCreate;
   const name = sanitizeName(opts.name || 'MyServer');
   const versionId = String(opts.versionId || '').trim();
   const port = Math.min(65535, Math.max(1, parseInt(opts.port, 10) || 25565));
@@ -1064,12 +1115,13 @@ async function createOrUpdateServer(opts) {
   ensureRoot();
   const idx = loadIndex();
   let entry = idx.servers.find((s) => s.versionId === versionId && s.name === name);
+  const fallbackBaseVersion = (resolved && resolved.versionId) || loaderInfo.mcVersion || versionId;
   if (!entry) {
     entry = {
       id: `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
       name,
       versionId,
-      baseVersion: resolved.versionId,
+      baseVersion: fallbackBaseVersion,
       port,
       maxMem,
       onlineMode,
@@ -1081,7 +1133,7 @@ async function createOrUpdateServer(opts) {
     entry.port = port;
     entry.maxMem = maxMem;
     entry.onlineMode = onlineMode;
-    entry.baseVersion = resolved.versionId;
+    entry.baseVersion = fallbackBaseVersion;
     entry.updatedAt = Date.now();
   }
   saveIndex(idx);
@@ -1099,7 +1151,7 @@ async function createOrUpdateServer(opts) {
   if (loaderInfo.loader !== 'vanilla') {
     emitLog(entry.id, '[VersePC] 检测到加载器: ' + loaderInfo.loader + ' ' + (loaderInfo.loaderVersion || '') + ' (MC ' + (loaderInfo.mcVersion || '?') + ')');
     try {
-      const modded = await installModdedServer(entry, loaderInfo, { syncMods });
+      const modded = await installModdedServer(entry, loaderInfo, { syncMods, abortRef });
       entry.loader = modded.loader;
       entry.loaderVersion = modded.loaderVersion;
       entry.launchKind = modded.launchKind;
@@ -1158,8 +1210,9 @@ async function createOrUpdateServer(opts) {
           progress: p.progress,
           message: `下载 server.jar ${Math.round(p.progress)}%`
         });
-      });
+      }, abortRef);
     } catch (e1) {
+      if (abortRef && abortRef.aborted) throw e1;
       // BMCLAPI 镜像
       let mirrorUrl = url
         .replace('https://piston-data.mojang.com/', 'https://bmclapi2.bangbang93.com/')
@@ -1173,7 +1226,7 @@ async function createOrUpdateServer(opts) {
           progress: p.progress,
           message: `镜像下载 server.jar ${Math.round(p.progress)}%`
         });
-      });
+      }, abortRef);
     }
     if (resolved.server.sha1) {
       const buf = fs.readFileSync(jarPath);
@@ -1498,6 +1551,15 @@ function initServerHostIPC() {
       return r;
     } catch (e) {
       console.error('[ServerHost] create failed:', e);
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('server-host:cancel-create', async () => {
+    try {
+      cancelCreate();
+      return { ok: true };
+    } catch (e) {
       return { ok: false, error: e.message };
     }
   });

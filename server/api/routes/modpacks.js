@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const utils = require('../../utils');
 
 module.exports = {
     register(registerRoute, deps) {
@@ -72,7 +73,7 @@ module.exports = {
                     const mrHits = (mrResult.hits || []).map(hit => ({
                         id: hit.project_id, slug: hit.slug, title: hit.title,
                         description: hit.description || '', author: (hit.author || '').replace(/_/g, ''),
-                        icon: hit.icon_url || '', downloads: hit.downloads || 0,
+                        icon: utils.applyImageMirror(hit.icon_url) || '', downloads: hit.downloads || 0,
                         categories: hit.categories || [], versions: hit.versions || [],
                         source: 'modrinth'
                     }));
@@ -100,7 +101,7 @@ module.exports = {
                     const cfHits = (cfResult.data || []).map(mod => ({
                         id: String(mod.id), slug: mod.slug || '', title: mod.name || 'Unknown',
                         description: mod.summary || '', author: (mod.authors || [])[0] || 'Unknown',
-                        icon: mod.logo?.url || '', downloads: mod.downloadCount || 0,
+                        icon: utils.applyImageMirror(mod.logo?.url) || '', downloads: mod.downloadCount || 0,
                         categories: (mod.categories || []).map(c => c.name || c.id || ''),
                         versions: [], source: 'curseforge'
                     }));
@@ -136,7 +137,20 @@ module.exports = {
                     sendJSON(res, { success: false, error: '未找到可用版本' });
                     return;
                 }
-                const targetVersion = versionData[0];
+                // 按版本号降序排序后取最新版本（去掉 v/V 前缀后按数字比较，相同版本号按发布日期降序）
+                const sortedVersions = [...versionData].sort((a, b) => {
+                    const aNum = ((a.version_number || a.name || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+                    const bNum = ((b.version_number || b.name || '').replace(/^v/i, '')).split(/[.\-_]/).map(p => parseInt(p, 10) || 0);
+                    for (let i = 0; i < Math.max(aNum.length, bNum.length); i++) {
+                        const aVal = aNum[i] || 0;
+                        const bVal = bNum[i] || 0;
+                        if (aVal !== bVal) return bVal - aVal;
+                    }
+                    const aDate = new Date(a.date_published || 0).getTime();
+                    const bDate = new Date(b.date_published || 0).getTime();
+                    return bDate - aDate;
+                });
+                const targetVersion = sortedVersions[0];
                 const primaryFile = targetVersion.files?.find(f => f.primary) || targetVersion.files?.[0];
                 if (!primaryFile || !primaryFile.url) {
                     sendJSON(res, { success: false, error: '未找到下载链接' });

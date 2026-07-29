@@ -233,9 +233,10 @@ async function doLaunch(versionId, versionJson, settings, account, externalVersi
 
   const nativesDir = natives.getNativesFolder(versionId);
 
-  // 启动前清理 mods 目录的 .downloading 残留文件和分块文件 (.cN)
+  // 启动前清理 mods 目录的 .downloading 残留文件、分块文件 (.cN) 和 .old.* 残留
   // .downloading 是上次下载中断留下的半成品
   // .cN 是分块下载未合并的碎片，文件名含 .jar 会导致 Forge ModDirTransformerDiscoverer 崩溃
+  // .old.* 是 safeRename 删除被锁定文件时重命名的残留，长期累积会占用磁盘
   try {
     const modsDir = path.join(gameDir, 'mods');
     if (fs.existsSync(modsDir)) {
@@ -250,83 +251,19 @@ async function doLaunch(versionId, versionJson, settings, account, externalVersi
         // 清理分块残留 (.c0, .c1, ... .c31)
         if (/\.c\d+$/.test(item)) {
           try { fs.unlinkSync(path.join(modsDir, item)); cleaned++; } catch (_) {}
+          continue;
+        }
+        // 清理 .old.{pid} 残留（safeRename 删除锁定文件时重命名的文件）
+        if (/\.old\.\d+$/.test(item)) {
+          try { fs.unlinkSync(path.join(modsDir, item)); cleaned++; } catch (_) {}
         }
       }
       if (cleaned > 0) {
-        console.log(`[Launch] 清理 ${cleaned} 个下载残留文件（.downloading/.cN）`);
+        console.log(`[Launch] 清理 ${cleaned} 个下载残留文件（.downloading/.cN/.old.*）`);
       }
     }
   } catch (e) {
     console.warn(`[Launch] 清理下载残留失败: ${e.message}`);
-  }
-
-  // [P0 FIX - 2026-07-21] 启动前检查 missing_mods_checker.json，自动补全缺失文件
-  // Better MC 等整合包内置 MissingModsChecker mod，启动时检查 config/missing_mods_checker.json
-  // 列出的必需文件，缺失会弹窗阻止启动。这里在启动前主动扫描，缺的自动从 CurseForge 补下
-  try {
-    const checkerPath = path.join(gameDir, 'config', 'missing_mods_checker.json');
-    if (fs.existsSync(checkerPath)) {
-      const shared = require('../modpack/shared');
-      const rawList = JSON.parse(fs.readFileSync(checkerPath, 'utf8'));
-      // 规范化数据（提取 fileId、校验 destination 等）
-      const normalizedItems = shared._normalizeMissingModsItems(rawList);
-      if (normalizedItems.length > 0) {
-        // 检查每个文件是否存在且完整
-        // [P0 FIX - 2026-07-21] 只使用精确匹配，禁用宽松前缀匹配
-        // 之前的前缀匹配只用 pattern 第一个 '-' 之前的片段（如 "Mandala's GUI "），
-        // 导致 "Mandala Utopia" 被误判为 "Mandala's GUI - Dark Mode Compat"，
-        // 实际文件缺失却没触发补全。CurseForge API 会返回准确的 fileName，
-        // 精确匹配失败后重新下载最安全。
-        const missingNow = [];
-        for (const item of normalizedItems) {
-          const destDir = path.join(gameDir, item.destination);
-          const filePath = path.join(destDir, item.pattern);
-          let exists = false;
-          if (fs.existsSync(filePath)) {
-            try {
-              const stat = fs.statSync(filePath);
-              if (stat.size > 0) exists = true;
-            } catch (_) {}
-          }
-          if (!exists) missingNow.push(item);
-        }
-        if (missingNow.length > 0) {
-          console.log(`[Launch] 检测到 ${missingNow.length} 个 missing_mods_checker 文件缺失，启动前自动补全...`);
-          // 传入 items 数组（已规范化的缺失文件列表），而不是 zip 对象
-          const result = await shared._downloadMissingModsCheckerFiles(
-            missingNow, gameDir, settings, null, null
-          );
-          if (result.failed > 0) {
-            console.warn(`[Launch] 自动补全失败 ${result.failed} 个文件:`, result.failedItems.map(fi => fi.displayName).join(', '));
-            // 不阻止启动，让 MissingModsChecker mod 自己弹窗提示用户
-          } else {
-            console.log(`[Launch] 自动补全完成：${result.downloaded} 下载 ${result.skipped} 已存在`);
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn(`[Launch] 启动前检查 missing_mods_checker.json 失败: ${e.message}`);
-  }
-
-  // 启动前校验整合包模组清单：检测文件缺失、JAR 损坏、内容被替换等问题
-  // 这是导入阶段保存的 mod-manifest.json，包含每个模组的 fileId、期望 modId 等信息
-  try {
-    const modpackShared = require('../modpack/shared');
-    const modIssues = modpackShared._verifyModManifest(gameDir);
-    if (modIssues.length > 0) {
-      console.log(`[Launch] 检测到 ${modIssues.length} 个模组文件异常，启动前自动修复...`);
-      for (const issue of modIssues) {
-        console.log(`[Launch] 模组异常: ${path.basename(issue.filePath)} [${issue.type}] ${issue.detail}`);
-      }
-      const repairResult = await modpackShared._repairModManifest(gameDir, modIssues, settings);
-      console.log(`[Launch] 模组自动修复完成: ${repairResult.fixed} 成功, ${repairResult.failed} 失败`);
-      if (repairResult.failed > 0) {
-        console.warn(`[Launch] 以下模组修复失败: ${repairResult.items.filter((i) => i.status === 'failed').map((i) => i.fileName).join(', ')}`);
-      }
-    }
-  } catch (e) {
-    console.warn(`[Launch] 启动前模组清单校验失败: ${e.message}`);
   }
 
   // 启动前检查 libraries 完整性：缺失的核心库（如 fabric-loader、intermediary）会导致

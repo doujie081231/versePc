@@ -234,13 +234,21 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
     }
 
     // 构建 critical natives 列表与缺失检测（启动前自愈与最终安全检查共用）
-    // LWJGL 3.x 的 native DLL 名：glfw.dll（非 lwjgl_glfw.dll）
-    // jinput native DLL 仅旧版本（<1.13，LWJGL 2.x 时代）需要，1.16.5 不含 jinput natives
+    // 根据版本实际使用的 LWJGL 版本决定检查哪些原生库，避免误判
     const checkCriticalNatives = (vJson) => {
       const nativesDir = natives.getNativesFolder(cleanVersionId);
-      const criticalNatives = ['lwjgl.dll', 'lwjgl_opengl.dll', 'glfw.dll', 'lwjgl_stb.dll', 'lwjgl_tinyfd.dll',
-        'openal.dll'];
-      const hasJinputNatives = (vJson.libraries || []).some((l) =>
+      const libs = vJson.libraries || [];
+      // 判断 LWJGL 版本：LWJGL 2.x 的 group 为 org.lwjgl.lwjgl，3.x 为 org.lwjgl
+      const isLwjgl2 = libs.some((l) => l.name && l.name.startsWith('org.lwjgl.lwjgl:'));
+      let criticalNatives;
+      if (isLwjgl2) {
+        // LWJGL 2.x（1.12.2 及更早）：lwjgl.dll + OpenAL
+        criticalNatives = ['lwjgl.dll', 'lwjgl64.dll', 'OpenAL32.dll', 'OpenAL64.dll'];
+      } else {
+        // LWJGL 3.x（1.17+）：glfw.dll（非 lwjgl_glfw.dll）
+        criticalNatives = ['lwjgl.dll', 'lwjgl_opengl.dll', 'glfw.dll', 'lwjgl_stb.dll', 'lwjgl_tinyfd.dll', 'openal.dll'];
+      }
+      const hasJinputNatives = libs.some((l) =>
         l.name && l.name.includes('jinput') && l.natives);
       if (hasJinputNatives) criticalNatives.push('jinput-dx8.dll', 'jinput-raw.dll');
       const filterMissing = (list) => list.filter((n) => {
@@ -629,7 +637,7 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
           if (fs.existsSync(altLib) && !forgeSearchDirs.includes(altLib)) forgeSearchDirs.push(altLib);
         }
         // 也扫描常见的自定义游戏目录
-        const customDirs = [path.join(os.homedir(), '.pcl'), path.join(os.homedir(), 'Documents', 'PCL'), path.join(os.homedir(), 'PCL')];
+        const customDirs = [];
         for (const cd of customDirs) {
           if (!fs.existsSync(cd)) continue;
           try {

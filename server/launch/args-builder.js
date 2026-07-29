@@ -39,7 +39,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
   }
 
   // NeoForge: 不补全 neoforge:ver:client 库条目，不把 patched/universal jar 加入 classpath。
-  // 参考 PCL 启动命令：classpath 中不包含 neoforge-*-client.jar 和 neoforge-*-universal.jar。
+  // 参考：classpath 中不包含 neoforge-*-client.jar 和 neoforge-*-universal.jar。
   // 这些 jar 由 NeoForge 的 ProductionClientProviderLocator 通过 -DlibraryDirectory +
   // --fml.neoForgeVersion 参数自动查找并加载（SRG client jar 作为 minecraft 模块，
   // universal jar 作为 neoforge mod）。手动加入 classpath 反而会导致 locator 跳过。
@@ -568,7 +568,7 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
 
   // NeoForge: patched jar 不在 classpath 中（由 -DlibraryDirectory 让 locator 自动查找），
   // 因此不需要把 patched jar 加入 ignoreList。version JSON 自带的 -DignoreList 已正确配置。
-  // 参考 PCL 启动命令：-DignoreList=client-extra,${version_name}.jar
+  // 参考：-DignoreList=client-extra,${version_name}.jar
 
   // Forge 1.20.1 split package 冲突已在导入流程源头修复（curseforge.js/importer.js
   // 复制继承版本 jar 到新版本目录并命名为 ${versionId}.jar），此处不再需要临时补丁。

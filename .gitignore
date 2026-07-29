@@ -177,6 +177,24 @@ check-ip.js
 check-libs.js
 test-screenshots/
 
+# 第四批清理：CDP 调试脚本、临时分析文件、参考源码目录
+.tmp-*
+.tmp-*.js
+.tmp-*.txt
+.tmp-*.png
+.tmp-*.zip
+cdp-*.js
+cdp-*.png
+test-cdp-*.js
+theseus_errors.txt
+verse框架替换项目/
+xmcl-src/
+modrinth-code-temp/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+js/tauri-bridge.js
+server/http-client/xmcl-download.js
+
 # NSIS 打包调试残留（构建日志、CDP 调试脚本、makensis 调试脚本、测试构建输出）
 build-*.log
 cdp-*.js

@@ -14,7 +14,7 @@ module.exports = {
    */
   register(registerRoute, deps) {
     const {
-      sendJSON, sendError, http, versions,
+      sendJSON, sendError, http, versions, utils,
       MODRINTH_API, CURSEFORGE_API
     } = extractDeps(deps);
 
@@ -83,7 +83,7 @@ module.exports = {
           hits: (result.hits || []).map((hit) => ({
             id: hit.project_id, slug: hit.slug, title: hit.title,
             description: hit.description || '', author: (hit.author || '').replace(/_/g, ''),
-            icon: hit.icon_url || '', downloads: hit.downloads || 0, followers: hit.followers || 0,
+            icon: utils.applyImageMirror(hit.icon_url) || '', downloads: hit.downloads || 0, followers: hit.followers || 0,
             categories: hit.categories || [], versions: hit.versions || [],
             dateCreated: hit.date_created || '', dateModified: hit.date_modified || '',
             source: 'modrinth', installed: false
@@ -113,7 +113,7 @@ module.exports = {
           hits: (result.data || []).map((mod) => ({
             id: String(mod.id), slug: mod.slug || '', title: mod.name || 'Unknown',
             description: mod.summary || '', author: (mod.authors || [])[0] || 'Unknown',
-            icon: mod.logo?.url || '', downloads: mod.downloadCount || 0, followers: mod.followers || 0,
+            icon: utils.applyImageMirror(mod.logo?.url) || '', downloads: mod.downloadCount || 0, followers: mod.followers || 0,
             categories: (mod.categories || []).map((c) => c.name || c.id || ''),
             versions: [], dateCreated: mod.dateCreated || '', dateModified: mod.dateModified || '',
             source: 'curseforge', installed: false, _cfDateReleased: mod.dateReleased || ''
