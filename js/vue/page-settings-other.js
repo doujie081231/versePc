@@ -283,6 +283,14 @@ const PageSettingsOther = {
                   </div>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0;"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </div>
+                <div class="mod-item" style="flex: 1; min-width: 280px; padding: 16px; cursor: pointer;" onclick="window.open('https://github.com/Voxelum/x-mcl', '_blank')">
+                  <div style="width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); font-size: 22px; font-weight: 700; color: #fff;">X</div>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">XMCL · @xmcl/file-transfer</div>
+                    <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">其高性能下载引擎为 VersePC 的下载能力提供了完善支持，实现多源并发与自动测速换源</div>
+                  </div>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0;"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </div>
               </div>
             </div>
 
