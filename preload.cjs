@@ -203,7 +203,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param {string} [targetVersion=''] - 目标版本号
    * @returns {Promise<Object>} 导入结果
    */
-  importModpack: (filePath, targetVersion = '') => ipcRenderer.invoke('import-modpack', filePath, targetVersion),
+  importModpack: (filePath, targetVersion = '', targetFolder = '') => ipcRenderer.invoke('import-modpack', filePath, targetVersion, targetFolder),
 
   /**
    * 监听整合包导入进度

@@ -142,12 +142,9 @@ async function _repairCorruptedModJars(versionDir) {
         }
         if (fixed) { repaired++; }
         else {
-            // 内部损坏无法修复的 JAR：删除损坏文件
-            // 保留会导致 Java 加载时抛出 ZipException/NoSuchFileException 崩溃
-            // 删除后 missing_mods_checker 会在启动前检查时自动补全（如果配置了的话）
-            // 或者用户重新导入整合包时 _cleanDownloadingResidue 会清理残留
-            try { fs.unlinkSync(jar.path); } catch (_) {}
-            logger.warn(`[Modpack] JAR 文件损坏已删除: ${path.basename(jar.path)} (${jar.reason})`);
+            // 修不好的 JAR 保留文件，只记录警告
+            // 删除会导致 mod 丢失且无法自动补回，保留至少让用户知道哪个文件有问题
+            logger.warn(`[Modpack] JAR 文件损坏且无法修复，保留文件: ${path.basename(jar.path)} (${jar.reason})`);
             failed++;
         }
     }

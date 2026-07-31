@@ -22,7 +22,8 @@ function filterVersionsByVisibility(installed, opts) {
       const modCount = (loaderModCounts && loaderModCounts.get(v.id)) || 0;
       return modCount > 0;
     }
-    return false;
+    // 原版基础版本即使被加载器版本继承也显示（用户可直接启动原版）
+    return true;
   });
 }
 

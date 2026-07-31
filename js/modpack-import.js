@@ -195,6 +195,7 @@
 
         try {
             let result;
+            const targetFolder = (typeof getSelectedFolder === 'function') ? getSelectedFolder() : '__internal';
             if (_isTauri) {
                 // Tauri 环境：走 api_proxy 命令
                 const tauriCore = window.__TAURI__ && window.__TAURI__.core
@@ -203,15 +204,15 @@
                 result = await tauriCore.invoke('api_proxy', {
                     method: 'POST',
                     path: '/api/modpack/import',
-                    body: { filePath: filePath, customName: customName }
+                    body: { filePath: filePath, customName: customName, targetFolder: targetFolder }
                 });
             } else if (window.electronAPI && window.electronAPI.importModpack) {
-                result = await window.electronAPI.importModpack(filePath, customName);
+                result = await window.electronAPI.importModpack(filePath, customName, targetFolder);
             } else {
                 const resp = await fetch('/api/modpack/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filePath, customName })
+                    body: JSON.stringify({ filePath, customName, targetFolder: targetFolder })
                 });
                 result = await resp.json();
             }

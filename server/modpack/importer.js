@@ -22,8 +22,88 @@ const { _importCurseForge } = require('./curseforge');
  * @param {string} filePath  - 本地文件的绝对路径
  * @param {function} onProgress - 进度回调 ({ stage, message, progress: 0-100 })
  * @param {string} targetVersion - 目标版本ID（版本隔离）
+ * @param {AbortSignal} [abortSignal=null] - 取消信号
+ * @param {string} [targetFolder=''] - 目标游戏文件夹路径（空或'__internal'表示默认文件夹）
+ * @param {string} [iconUrl=''] - 整合包封面图标 URL（在线下载整合包时由调用方传入）
  */
-async function importModpackFromPath(filePath, onProgress, targetVersion = '', abortSignal = null) {
+async function importModpackFromPath(filePath, onProgress, targetVersion = '', abortSignal = null, targetFolder = '', iconUrl = '') {
+    // 如果指定了目标文件夹，临时切换工作目录，导入完成后恢复
+    const _needSwitch = targetFolder && targetFolder !== '__internal' && targetFolder !== ctx.dirs.DATA_DIR;
+    const _prevRoot = ctx.dirs.ACTIVE_GAME_ROOT;
+    if (_needSwitch) {
+        ctx.setActiveGameRoot(targetFolder);
+    }
+    try {
+      const result = await _importModpackFromPathInner(filePath, onProgress, targetVersion, abortSignal);
+      // 导入成功后，若调用方提供了图标 URL，补充保存到版本目录与 pack-info.json
+      // 这样版本列表能立即显示整合包封面，无需依赖版本图标接口的延迟在线搜索
+      if (result && result.success && result.versionId && iconUrl) {
+        try {
+          await _saveModpackIcon(result.versionId, iconUrl);
+        } catch (e) {
+          console.warn(`[Modpack] 保存整合包封面图标失败（非致命）: ${e.message}`);
+        }
+      }
+      return result;
+    } finally {
+      if (_needSwitch) {
+        ctx.setActiveGameRoot(_prevRoot === ctx.dirs.DATA_DIR ? null : _prevRoot);
+      }
+    }
+}
+
+/**
+ * 下载整合包封面图标到版本目录，并把图标 URL 写入 pack-info.json
+ * 仅当版本目录尚无本地图标文件时才下载，避免覆盖已有的 pack.png/icon.png/logo.png
+ * @param {string} versionId - 版本 ID
+ * @param {string} iconUrl - 图标 URL
+ */
+async function _saveModpackIcon(versionId, iconUrl) {
+  if (!versionId || !iconUrl) return;
+  const versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
+  if (!fs.existsSync(versionDir)) return;
+
+  // 把图标 URL 写入 pack-info.json，供版本图标接口在本地文件缺失时回退使用
+  const packInfoPath = path.join(versionDir, 'pack-info.json');
+  if (fs.existsSync(packInfoPath)) {
+    try {
+      const pi = JSON.parse(fs.readFileSync(packInfoPath, 'utf8'));
+      if (!pi.iconUrl || pi.iconUrl !== iconUrl) {
+        pi.iconUrl = iconUrl;
+        fs.writeFileSync(packInfoPath, JSON.stringify(pi, null, 2));
+      }
+    } catch (_) {}
+  }
+
+  // 已有本地图标文件则不重复下载
+  const localIcons = ['icon.png', 'pack.png', 'logo.png'];
+  if (localIcons.some(f => fs.existsSync(path.join(versionDir, f)))) return;
+
+  const https = require('https');
+  const iconData = await new Promise((resolve) => {
+    const r = https.get(iconUrl, { timeout: 10000 }, (resp) => {
+      // 部分图标 URL 可能经过镜像转发，跟随重定向
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        https.get(resp.headers.location, { timeout: 10000 }, (r2) => {
+          const chunks = [];
+          r2.on('data', (c) => chunks.push(c));
+          r2.on('end', () => resolve(Buffer.concat(chunks)));
+        }).on('error', () => resolve(null)).on('timeout', function () { this.destroy(); resolve(null); });
+        return;
+      }
+      const chunks = [];
+      resp.on('data', (c) => chunks.push(c));
+      resp.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    r.on('error', () => resolve(null));
+    r.on('timeout', () => { r.destroy(); resolve(null); });
+  });
+  if (iconData && iconData.length > 0) {
+    try { fs.writeFileSync(path.join(versionDir, 'icon.png'), iconData); } catch (_) {}
+  }
+}
+
+async function _importModpackFromPathInner(filePath, onProgress, targetVersion = '', abortSignal = null) {
     const stageHistory = [];
     let _lastFilesSnapshot = null;
     let _lastFilesKey = '';

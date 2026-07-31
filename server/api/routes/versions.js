@@ -913,6 +913,53 @@ module.exports = {
       } catch (e) { sendJSON(res, { success: false, error: e.message }); }
     });
 
+    /* /api/version/set-active-folder - 切换当前激活的游戏文件夹
+       切换后所有下载/安装/修复操作都针对该文件夹；传 folderPath 为空则恢复默认文件夹 */
+    registerRoute('POST', '/api/version/set-active-folder', async (req, res, parsedUrl) => {
+      try {
+        const saData = await readBody(req);
+        const folderPath = saData.folderPath || '';
+        // 安全检查：有进行中的安装/下载任务时拒绝切换，避免目录中途变更导致文件错位
+        const activeInstalls = ctx.sessions.installSessions.size;
+        const activeModDl = ctx.sessions.modDownloadSessions.size;
+        const activeRepair = ctx.sessions.repairSessions.size;
+        if (activeInstalls > 0 || activeModDl > 0 || activeRepair > 0) {
+          sendJSON(res, {
+            success: false,
+            error: `有${activeInstalls + activeModDl + activeRepair}个任务正在进行中，请等待完成后再切换文件夹`
+          });
+          return;
+        }
+        // 空路径或 '__internal' 表示恢复默认文件夹
+        if (!folderPath || folderPath === '__internal') {
+          ctx.setActiveGameRoot(null);
+          sendJSON(res, { success: true, activeRoot: ctx.dirs.DATA_DIR, isDefault: true });
+          return;
+        }
+        // 校验外部文件夹路径
+        if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+          sendJSON(res, { success: false, error: '文件夹不存在或不是有效目录' });
+          return;
+        }
+        ctx.setActiveGameRoot(folderPath);
+        sendJSON(res, { success: true, activeRoot: folderPath, isDefault: false });
+      } catch (e) {
+        console.error('[SetActiveFolder] 切换失败:', e.message);
+        sendJSON(res, { success: false, error: e.message });
+      }
+    });
+
+    /* /api/version/get-active-folder - 获取当前激活的游戏文件夹 */
+    registerRoute('GET', '/api/version/get-active-folder', async (req, res, parsedUrl) => {
+      try {
+        const activeRoot = ctx.dirs.ACTIVE_GAME_ROOT || ctx.dirs.DATA_DIR;
+        const isDefault = activeRoot === ctx.dirs.DATA_DIR;
+        sendJSON(res, { success: true, activeRoot, isDefault });
+      } catch (e) {
+        sendJSON(res, { success: false, error: e.message });
+      }
+    });
+
     /* /api/version/export-info - 获取导出整合包所需的信息（资源包/模组/存档数量与描述） */
     registerRoute('GET', '/api/version/export-info', async (req, res, parsedUrl) => {
       const eiVersionId = parsedUrl.query.versionId;
@@ -1283,31 +1330,46 @@ module.exports = {
           customIconData = _tryFindIcon(mcVersionsDir);
         }
 
-        // 本地无图标时，尝试从 Modrinth 在线搜索整合包图标并缓存到版本目录
+        // 本地无图标时，尝试在线获取整合包封面图标并缓存到版本目录
         if (!customIconData) {
           try {
             const packInfoPath = path.join(ctx.dirs.VERSIONS_DIR, cleanId, 'pack-info.json');
             if (fs.existsSync(packInfoPath)) {
               const packInfo = JSON.parse(fs.readFileSync(packInfoPath, 'utf8'));
-              const packName = packInfo.name || cleanId;
-              const modrinthApi = (ctx.urls && ctx.urls.MODRINTH_API) || 'https://api.modrinth.com/v2';
-              const searchUrl = `${modrinthApi}/search?query=${encodeURIComponent(packName)}&facets=${JSON.stringify([["project_type:modpack"]])}&limit=1`;
               const https = require('https');
-              const searchResult = await new Promise((resolve) => {
-                const r = https.get(searchUrl, { timeout: 8000 }, (resp) => {
-                  let data = '';
-                  resp.on('data', (chunk) => data += chunk);
-                  resp.on('end', () => {
-                    try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
+              // 优先用 pack-info.json 中记录的图标 URL 直接下载（下载整合包时已保存）
+              let iconUrl = '';
+              if (packInfo.iconUrl) {
+                iconUrl = packInfo.iconUrl;
+              } else {
+                // 无图标 URL 时，用整合包名称搜 Modrinth 获取图标（导入本地整合包的场景）
+                const packName = packInfo.name || cleanId;
+                const modrinthApi = (ctx.urls && ctx.urls.MODRINTH_API) || 'https://api.modrinth.com/v2';
+                const searchUrl = `${modrinthApi}/search?query=${encodeURIComponent(packName)}&facets=${JSON.stringify([["project_type:modpack"]])}&limit=1`;
+                const searchResult = await new Promise((resolve) => {
+                  const r = https.get(searchUrl, { timeout: 8000 }, (resp) => {
+                    let data = '';
+                    resp.on('data', (chunk) => data += chunk);
+                    resp.on('end', () => {
+                      try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
+                    });
                   });
+                  r.on('error', () => resolve(null));
+                  r.on('timeout', () => { r.destroy(); resolve(null); });
                 });
-                r.on('error', () => resolve(null));
-                r.on('timeout', () => { r.destroy(); resolve(null); });
-              });
-              const iconUrl = searchResult && searchResult.hits && searchResult.hits[0] && searchResult.hits[0].icon;
+                iconUrl = searchResult && searchResult.hits && searchResult.hits[0] && searchResult.hits[0].icon;
+              }
               if (iconUrl) {
                 const iconData = await new Promise((resolve) => {
                   const r = https.get(iconUrl, { timeout: 10000 }, (resp) => {
+                    if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+                      https.get(resp.headers.location, { timeout: 10000 }, (r2) => {
+                        const chunks = [];
+                        r2.on('data', (c) => chunks.push(c));
+                        r2.on('end', () => resolve(Buffer.concat(chunks)));
+                      }).on('error', () => resolve(null)).on('timeout', function () { this.destroy(); resolve(null); });
+                      return;
+                    }
                     const chunks = [];
                     resp.on('data', (chunk) => chunks.push(chunk));
                     resp.on('end', () => resolve(Buffer.concat(chunks)));
@@ -1465,6 +1527,7 @@ module.exports = {
       const loaderInfo = data.loaderInfo;
       const downloadSource = data.downloadSource || 'china-first';
       const customName = data.customName || '';
+      const targetFolder = data.targetFolder || '';
       if (!versionUrl) { sendError(res, 'Missing version URL', 400); return; }
 
       const sessionId = crypto.randomUUID();
@@ -1496,7 +1559,22 @@ module.exports = {
         _abortController: new AbortController()
       });
       sendJSON(res, { success: true, sessionId, versionId: details.id });
-      _server().performInstallation(sessionId, details).catch((err) => {
+
+      // 如果指定了目标文件夹，临时切换工作目录，安装完成后恢复
+      const needSwitch = targetFolder && targetFolder !== '__internal' && targetFolder !== ctx.dirs.DATA_DIR;
+      const prevRoot = ctx.dirs.ACTIVE_GAME_ROOT;
+      const restoreRoot = () => {
+        if (needSwitch) {
+          ctx.setActiveGameRoot(prevRoot === ctx.dirs.DATA_DIR ? null : prevRoot);
+        }
+      };
+      if (needSwitch) {
+        ctx.setActiveGameRoot(targetFolder);
+      }
+      _server().performInstallation(sessionId, details).then(() => {
+        restoreRoot();
+      }).catch((err) => {
+        restoreRoot();
         const session = ctx.sessions.installSessions.get(sessionId);
         if (session) { session.status = 'failed'; session.stage = 'failed'; session.message = `安装失败: ${err.message}`; session.errors.push(err.message); }
       });

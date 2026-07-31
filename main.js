@@ -635,8 +635,8 @@ ipcMain.handle('jvm-preheat', async (event, javaPath, maxMemMB) => {
 });
 
 /* 整合包导入 IPC - 主进程通过 IPC 调用 server.js 的整合包导入功能 */
-ipcMain.handle('import-modpack', async (event, filePath, targetVersion = '') => {
-  console.log(`[IPC] import-modpack 收到请求: ${filePath}, 目标版本: ${targetVersion || '(自动)'}`);
+ipcMain.handle('import-modpack', async (event, filePath, targetVersion = '', targetFolder = '') => {
+  console.log(`[IPC] import-modpack 收到请求: ${filePath}, 目标版本: ${targetVersion || '(自动)'}, 目标文件夹: ${targetFolder || '(默认)'}`);
   try {
     if (!serverModuleCache || !serverModuleCache.importModpackFromPath) {
       console.error(`[IPC] import-modpack 服务器模块未就绪`);
@@ -647,7 +647,7 @@ ipcMain.handle('import-modpack', async (event, filePath, targetVersion = '') => 
       if (!sender.isDestroyed()) {
         sender.send('import-progress', progress);
       }
-    }, targetVersion);
+    }, targetVersion, null, targetFolder);
     console.log(`[IPC] import-modpack 完成: ${result?.success ? '成功' : '失败'} ${result?.error || ''}`);
     return result;
   } catch (e) {

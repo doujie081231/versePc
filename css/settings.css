@@ -434,7 +434,7 @@
 
 .page.active {
     display: block;
-    animation: pageIn 0.18s var(--ease-out-expo) backwards;
+    animation: pageIn 0.3s var(--ease-out-expo) backwards;
     pointer-events: auto;
 }
 
@@ -459,13 +459,13 @@
 
 /* 关键帧动画 - 页面/应用/Toast 进出动画 */
 @keyframes pageIn {
-    from { opacity: 0; transform: translate3d(0, 8px, 0); }
+    from { opacity: 0; transform: translate3d(0, 48px, 0); }
     to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes pageOut {
     from { opacity: 1; transform: translate3d(0, 0, 0); }
-    to { opacity: 0; transform: translate3d(0, -4px, 0); }
+    to { opacity: 0; transform: translate3d(0, -24px, 0); }
 }
 
 @keyframes slideUp {

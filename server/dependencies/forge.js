@@ -50,8 +50,24 @@ function checkForgeCore(versionJson, versionId, externalVersionDir, result) {
   const _depHasForgeId = _depVLower.includes('forge') && !_depIsNeo;
   const _depHasForgeLibOnly = (versionJson.libraries || []).some((l) =>
     l.name && (l.name.startsWith('net.minecraftforge:forge:') || l.name.startsWith('net.minecraftforge:fmlloader:')));
-  const isForgeVersion = _depHasForgeId || scanInheritsForge(versionId) || _depHasForgeLibOnly;
+  let isForgeVersion = _depHasForgeId || scanInheritsForge(versionId) || _depHasForgeLibOnly;
   result.forgeCore = { ok: true, missing: [], message: '' };
+
+  // [CRITICAL - 2026-07-30] Fabric 版本防护
+  // 即使 isForgeVersion 为 true（例如 inheritsFrom 链中被错误注入了 Forge 版本），
+  // 只要版本 JSON 自身明确是 Fabric（含 fabric-loader 库或 fabric mainClass），
+  // 就不应该执行 Forge 核心库检查，否则会误报缺失并触发 Forge 重装，污染 Fabric 环境。
+  if (isForgeVersion) {
+    const _hasFabricLib = (versionJson.libraries || []).some((l) =>
+      l.name && (l.name.startsWith('net.fabricmc:fabric-loader') ||
+        l.name.startsWith('net.fabricmc:intermediary') ||
+        l.name.startsWith('org.quiltmc:quilt-loader')));
+    const _hasFabricMainClass = (versionJson.mainClass || '').toLowerCase().includes('net.fabricmc') ||
+      (versionJson.mainClass || '').toLowerCase().includes('org.quiltmc');
+    if (_hasFabricLib || _hasFabricMainClass) {
+      isForgeVersion = false;
+    }
+  }
 
   if (isForgeVersion) {
     const forgeCoreLibs = [];

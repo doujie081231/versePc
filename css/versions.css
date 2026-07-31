@@ -126,6 +126,29 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    overflow: clip;
+}
+
+/* 卡片堆积木入场动画 - 从下向上堆叠 */
+@keyframes cardStackIn {
+    from {
+        opacity: 0;
+        transform: translate3d(0, 24px, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+.version-list.card-stack-go .version-item,
+.version-list.card-stack-go .error-version-item {
+    animation: cardStackIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.version-list.card-stack-done .version-item,
+.version-list.card-stack-done .error-version-item {
+    animation: none;
 }
 
 .version-item {

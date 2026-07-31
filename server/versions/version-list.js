@@ -286,6 +286,34 @@ function validateInstalledVersions() {
 }
 
 /**
+ * 从整合包 JSON 内容判断实际加载器类型
+ * @param {object} modpackData - 整合包 JSON 对象
+ * @returns {'Fabric'|'Forge'|'NeoForge'|null} 加载器类型，无法判断返回 null
+ */
+function _detectModpackLoader(modpackData) {
+  if (!modpackData) return null;
+  const libsStr = JSON.stringify(modpackData.libraries || []).toLowerCase();
+  const mainClass = (modpackData.mainClass || '').toLowerCase();
+  const gameArgs = JSON.stringify(modpackData.arguments?.game || []).toLowerCase();
+  // 优先用 libraries 中的加载器特有库判断（最准确）
+  const hasFabricLib = libsStr.includes('net.fabricmc') || libsStr.includes('org.quiltmc:quilt-loader');
+  const hasNeoForgeLib = libsStr.includes('net.neoforged') || libsStr.includes('neoforged.fancymodloader');
+  const hasForgeLib = libsStr.includes('net.minecraftforge') || libsStr.includes('fancymodloader');
+  if (hasFabricLib) return 'Fabric';
+  if (hasNeoForgeLib) return 'NeoForge';
+  if (hasForgeLib) return 'Forge';
+  // 其次用 mainClass 判断（注意 fabric/forge 关键词可能误匹配，用更精确的特征）
+  if (mainClass.includes('net.fabricmc') || mainClass.includes('org.quiltmc')) return 'Fabric';
+  if (mainClass.includes('neoforged') || mainClass.includes('neoforge')) return 'NeoForge';
+  if (mainClass.includes('bootstraplauncher') || mainClass.includes('modlauncher')) return 'Forge';
+  // 最后用 gameArgs 中的 FML 参数判断
+  if (gameArgs.includes('--fml.neoforgeversion')) return 'NeoForge';
+  if (gameArgs.includes('--fml.forgeversion')) return 'Forge';
+  // 整合包 JSON 是继承式（只有 id 和 inheritsFrom，无 libraries/mainClass）时无法判断
+  return null;
+}
+
+/**
  * 修正整合包的 inheritsFrom：把指向原版基础版本的引用改为指向已安装的加载器版本
  * @param {Array} installed - 已安装版本列表
  * @param {RegExp} loaderIdPattern - 加载器 ID 正则
@@ -305,41 +333,37 @@ function fixModpackInheritsFrom(installed, loaderIdPattern) {
       (l.isForge || l.isFabric || l.isNeoForge || l.isOptiFine || l.isLiteLoader)
     );
     if (candidates.length === 0) continue;
-    let parentLoader = candidates[0];
-    // 多个候选加载器时，根据整合包 JSON 内容判断实际加载器类型
-    if (candidates.length > 1) {
-      const modpackJsonPath = path.join(ctx.dirs.VERSIONS_DIR, v.id, `${v.id}.json`);
-      if (fs.existsSync(modpackJsonPath)) {
-        try {
-          const modpackData = JSON.parse(fs.readFileSync(modpackJsonPath, 'utf-8'));
-          const libsStr = JSON.stringify(modpackData.libraries || []);
-          const mainClass = modpackData.mainClass || '';
-          const gameArgs = JSON.stringify(modpackData.arguments?.game || []);
-          const isFabricModpack = libsStr.includes('net.fabricmc') || mainClass.includes('fabric') || gameArgs.includes('fabric');
-          const isForgeModpack = libsStr.includes('net.minecraftforge') || mainClass.includes('forge') || gameArgs.includes('forge');
-          const isNeoForgeModpack = libsStr.includes('net.neoforged') || mainClass.includes('neoforged') || gameArgs.includes('neoforge');
-          if (isFabricModpack) {
-            const fabricCandidate = candidates.find((c) => c.isFabric);
-            if (fabricCandidate) parentLoader = fabricCandidate;
-          } else if (isNeoForgeModpack) {
-            const neoCandidate = candidates.find((c) => c.isNeoForge);
-            if (neoCandidate) parentLoader = neoCandidate;
-          } else if (isForgeModpack) {
-            const forgeCandidate = candidates.find((c) => c.isForge);
-            if (forgeCandidate) parentLoader = forgeCandidate;
-          }
-        } catch (e) {}
-      }
-    }
     const modpackJsonPath = path.join(ctx.dirs.VERSIONS_DIR, v.id, `${v.id}.json`);
     if (!fs.existsSync(modpackJsonPath)) continue;
+    let modpackData = null;
     try {
-      const modpackData = JSON.parse(fs.readFileSync(modpackJsonPath, 'utf-8'));
-      if (modpackData.inheritsFrom === baseMcId) {
-        modpackData.inheritsFrom = parentLoader.id;
-        fs.writeFileSync(modpackJsonPath, JSON.stringify(modpackData, null, 2));
-        v.inheritsFrom = parentLoader.id;
-      }
+      modpackData = JSON.parse(fs.readFileSync(modpackJsonPath, 'utf-8'));
+    } catch (e) { continue; }
+    if (modpackData.inheritsFrom !== baseMcId) continue;
+
+    // 根据整合包 JSON 内容判断实际加载器类型
+    const detectedLoader = _detectModpackLoader(modpackData);
+    let parentLoader = null;
+    if (detectedLoader) {
+      // 能确定加载器类型：选择匹配的候选
+      if (detectedLoader === 'Fabric') parentLoader = candidates.find((c) => c.isFabric);
+      else if (detectedLoader === 'NeoForge') parentLoader = candidates.find((c) => c.isNeoForge);
+      else if (detectedLoader === 'Forge') parentLoader = candidates.find((c) => c.isForge);
+      // 候选中没有匹配类型时不修改（避免把 Fabric 整合包硬塞给 Forge）
+    } else if (candidates.length === 1) {
+      // 无法判断加载器类型，且只有一个候选：使用该候选
+      // （单候选场景：用户只装了一个加载器，整合包大概率就是这个加载器）
+      parentLoader = candidates[0];
+    }
+    // 无法判断且多候选时：不修改 inheritsFrom，保持原样
+    // 旧逻辑会默认取 candidates[0]，可能把 Fabric 整合包错误指向 Forge
+    // 保持原样让启动时 resolveVersionJson 沿继承链合并处理，更安全
+
+    if (!parentLoader) continue;
+    try {
+      modpackData.inheritsFrom = parentLoader.id;
+      fs.writeFileSync(modpackJsonPath, JSON.stringify(modpackData, null, 2));
+      v.inheritsFrom = parentLoader.id;
     } catch (e) {}
   }
 }
@@ -638,12 +662,16 @@ function getInstalledVersions(forceRefresh) {
   //       加载器版本（Forge/Fabric/NeoForge）永远显示。
   // [AI 自动生成警告] 不要改回旧的过滤逻辑，否则用户安装整合包后加载器版本会消失。
   //
+  // [调整 2026-07-30] 原版基础版本被继承时也显示
+  // 需求：用户希望列表里能看到裸基础版本（如 26.2）以直接启动原版。
+  // 现状：原版基础版本被加载器版本继承时不再隐藏；加载器版本被继承且 mods 为空仍隐藏。
+  //
   // [关键修复 2026-06-30] 加载器版本被整合包继承且自身 mods 为空时隐藏
   // 问题：CurseForge 整合包导入后，版本列表同时显示整合包版本和加载器版本，
   //       但加载器版本 mods 目录为空（mods 在整合包隔离目录），启动后无 mod。
   // 修复：被继承的加载器版本，仅当自身 mods 目录有 jar 时才显示；
   //       独立安装（不被继承）的加载器版本仍显示。
-  //       纯原版基础版本被继承仍隐藏（不回归旧修复）。
+  //       纯原版基础版本被继承时也显示（见上方 2026-07-30 调整）。
   const loaderModCounts = new Map();
   for (const id of inheritsFromIds) {
     const v = installedMap.get(id);

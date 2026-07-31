@@ -261,8 +261,8 @@ const API = {
     setVersionCategory: (versionId, category) => apiPost('/api/version/category', { versionId, category }),
 
     // === 版本安装 ===
-    installVersion: (url, versionId, loaderInfo = null, downloadSource = 'mojang', customName = '') =>
-        apiPost('/api/install-start', { url, versionId, loaderInfo, downloadSource, customName }),
+    installVersion: (url, versionId, loaderInfo = null, downloadSource = 'mojang', customName = '', targetFolder = '') =>
+        apiPost('/api/install-start', { url, versionId, loaderInfo, downloadSource, customName, targetFolder }),
     checkVersionName: (name) =>
         apiPost('/api/check-version-name', { name }),
     getInstallProgress: (sessionId, sse = false) =>
@@ -441,7 +441,6 @@ const API = {
         apiGet('/api/java/install-status', { sessionId }),
     autoInstallJava: (requiredVersion = 17) =>
         apiPost('/api/java/auto-install', { requiredVersion }),
-    getJavaDownloadSources: () => apiGet('/api/java/download-sources'),
     downloadJava: (majorVersion) => apiPost('/api/java/download', { majorVersion }),
     cancelJavaDownload: (sessionId) => apiPost('/api/java/cancel', { sessionId }),
     getJavaDownloadStatus: (sessionId) =>
@@ -485,6 +484,10 @@ const API = {
         apiPost('/api/version/remove-folder', { path: folderPath }),
     listExternalFolders: () => apiGet('/api/version/list-folders'),
     selectExternalFolder: () => apiGet('/api/version/select-folder'),
+    // 切换当前激活的游戏文件夹（切换后下载/安装/修复都针对该文件夹）
+    setActiveFolder: (folderPath) =>
+        apiPost('/api/version/set-active-folder', { folderPath }),
+    getActiveFolder: () => apiGet('/api/version/get-active-folder'),
 
     // === 整合包导出 ===
     exportModpack: (versionId, name, version, author, description, selectedKeys) =>

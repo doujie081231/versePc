@@ -39,26 +39,6 @@ function showJavaInstallModal(requiredVersion) {
     });
 }
 
-async function loadJavaDownloadSources() {
-    try {
-        const result = await API.getJavaDownloadSources();
-        const listEl = document.getElementById('java-source-list');
-        if (!listEl || !result.sources) return;
-
-        result.sources.forEach(source => {
-            const item = document.createElement('div');
-            item.className = 'java-source-item';
-            item.dataset.source = source.id;
-            item.innerHTML = `
-                <span class="java-source-dot"></span>
-                <span class="java-source-name">${source.name}</span>
-                <span class="java-source-desc">${source.description}</span>
-            `;
-            listEl.appendChild(item);
-        });
-    } catch (e) { console.error('[Java] Failed to load download sources:', e); }
-}
-
 function closeJavaInstallModal() {
     if (javaInstallPollTimer) { clearInterval(javaInstallPollTimer); javaInstallPollTimer = null; }
     const modal = document.getElementById('java-install-modal');
@@ -72,11 +52,9 @@ async function startJavaAutoInstall(requiredVersion) {
     const installBtn = document.getElementById('java-install-btn');
     const progressDiv = document.getElementById('java-install-progress');
     const footerDiv = document.getElementById('java-install-footer');
-    const sourceList = document.getElementById('java-source-list');
 
     if (installBtn) installBtn.disabled = true;
     if (progressDiv) progressDiv.style.display = 'block';
-    if (sourceList) sourceList.style.display = 'none';
 
     try {
         const result = await API.autoInstallJava(requiredVersion);

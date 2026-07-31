@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file server/modpack/modrinth.js - Modrinth (.mrpack) 整合包导入
  * @description 解析 modrinth.index.json，安装基础版本与模组加载器，下载 mods 与 overrides。
  */
@@ -734,45 +734,64 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
           updateOverall();
         };
         const _modTimeout = computeModTimeout(fileSize);
+        const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
 
-        // 全量走 XMCL 引擎：64 线程分块 + 多镜像回退 + 测速换源
-        // XMCL 内部已处理多 URL 选择、慢速换源、stall 检测、307 重定向跟随
-        try {
-          const raceResult = await http.downloadFileRace(allUrls, destPath, {
-            onProgress: _modOnProgress,
-            retries: 2,
-            stallTimeout: 180000,
-            abortSignal,
-            timeout: _modTimeout
-          });
-          if (utils.isJarIntact(destPath)) {
-            const expectedSha1 = fileEntry.hashes && fileEntry.hashes.sha1;
-            if (expectedSha1) {
-              const actualSha1 = await utils.calculateSHA1(destPath);
-              if (actualSha1 === expectedSha1) { downloaded = true; }
-              else { console.warn(`[mrpack] SHA1校验失败: ${fileName}`); try { fs.unlinkSync(destPath); } catch (_) {} }
-            } else { downloaded = true; }
-          } else { try { fs.unlinkSync(destPath); } catch (_) {} }
-        } catch (e) {
-          if (abortSignal && abortSignal.aborted) return;
-          console.warn(`[mrpack] ${fileName} XMCL 下载失败: ${e.message.substring(0, 100)}`);
+        const MAX_MR_ROUNDS = 3;
+        for (let round = 0; round < MAX_MR_ROUNDS && !downloaded; round++) {
+          if (abortSignal && abortSignal.aborted) break;
+          if (round > 0) {
+            if (modFiles[index]) { modFiles[index].status = 'downloading'; modFiles[index].progress = 0; }
+            updateOverall();
+            await new Promise((r) => setTimeout(r, 2000 + round * 2000 + Math.random() * 2000));
+          }
+
+          try {
+            const raceResult = await http.downloadFileRace(allUrls, destPath, {
+              onProgress: _modOnProgress,
+              retries: 2,
+              stallTimeout: 180000,
+              abortSignal,
+              timeout: _modTimeout
+            });
+            if (utils.isJarIntact(destPath)) {
+              if (expectedSha1) {
+                const actualSha1 = await utils.calculateSHA1(destPath);
+                if (actualSha1 === expectedSha1) {
+                  downloaded = true;
+                } else {
+                  console.warn(`[mrpack] SHA1校验失败(轮次${round + 1}/${MAX_MR_ROUNDS}): ${fileName}`);
+                  try { fs.unlinkSync(destPath); } catch (_) {}
+                }
+              } else {
+                downloaded = true;
+              }
+            } else {
+              console.warn(`[mrpack] JAR结构损坏(轮次${round + 1}/${MAX_MR_ROUNDS}): ${fileName}`);
+              try { fs.unlinkSync(destPath); } catch (_) {}
+            }
+          } catch (e) {
+            if (abortSignal && abortSignal.aborted) break;
+            console.warn(`[mrpack] ${fileName} XMCL下载失败(轮次${round + 1}/${MAX_MR_ROUNDS}): ${e.message.substring(0, 100)}`);
+            try { fs.unlinkSync(destPath); } catch (_) {}
+          }
         }
 
         if (downloaded) {
           if (modFiles[index]) { modFiles[index].status = 'completed'; modFiles[index].progress = 100; }
           okCount++;
         } else {
-          // 清理当前 mod 的 .downloading 残留文件，避免下次导入续传死循环
           try { const _tmpFile = destPath + '.downloading'; if (fs.existsSync(_tmpFile)) fs.unlinkSync(_tmpFile); } catch (_) {}
           if (abortSignal && abortSignal.aborted) {
             if (modFiles[index]) { modFiles[index].status = 'failed'; modFiles[index].error = '已取消'; }
           } else {
-            console.error(`[mrpack] Mod ${fileName} 所有重试均失败，无法下载`);
+            console.error(`[mrpack] Mod ${fileName} 3轮重试均失败，无法下载`);
             if (modFiles[index]) { modFiles[index].status = 'failed'; modFiles[index].error = '下载失败'; }
           }
           failCount++;
-          if (failCount > Math.max(5, filesList.length * 0.1) && failCount > okCount) {
-            console.error(`[mrpack] 失败数(${failCount})超过阈值，取消剩余下载`);
+          const totalAttempts = okCount + failCount;
+          const failRatio = failCount / Math.max(totalAttempts, 1);
+          if (failCount > Math.max(20, filesList.length * 0.4) && failRatio > 0.75) {
+            console.error(`[mrpack] 失败率过高(${failCount}/${totalAttempts} = ${(failRatio * 100).toFixed(1)}%)，取消剩余下载`);
             if (abortSignal) try { abortSignal.abort(); } catch (_) {}
           }
         }

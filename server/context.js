@@ -67,11 +67,22 @@ const ctx = {
     APP_DATA_PATH: null, // 设置为 DATA_DIR
     MINECRAFT_DIR,
     MINECRAFT_DIR_ORIG,
+    // [当前激活的游戏根目录] 默认等于 DATA_DIR；切换外部文件夹后指向外部文件夹
+    // 所有游戏数据目录（VERSIONS/LIBRARIES/ASSETS/MODS/NATIVES）都基于此派生
+    ACTIVE_GAME_ROOT: null,
+    // 默认游戏数据目录（永不改变，基于 DATA_DIR），配置文件始终用这些
+    DEFAULT_VERSIONS_DIR: null,
+    DEFAULT_LIBRARIES_DIR: null,
+    DEFAULT_ASSETS_DIR: null,
+    DEFAULT_MODS_DIR: null,
+    DEFAULT_NATIVES_DIR: null,
+    // 当前游戏数据目录（随 ACTIVE_GAME_ROOT 切换，安装/下载/修复都用这些）
     VERSIONS_DIR: null,
     LIBRARIES_DIR: null,
     ASSETS_DIR: null,
     MODS_DIR: null,
     NATIVES_DIR: null,
+    // 配置文件目录（始终基于 DATA_DIR，不随外部文件夹切换）
     ACCOUNTS_FILE: null,
     SETTINGS_FILE: null,
     JAVA_DIR: null,
@@ -313,16 +324,27 @@ const ctx = {
 
 /**
  * 重新初始化派生路径，在 DATA_DIR 变更后调用
+ * 注意：此函数会重置 ACTIVE_GAME_ROOT 为默认 DATA_DIR（即取消外部文件夹切换）
  */
 function reinitPaths() {
   const d = ctx.dirs;
   d.DATA_DIR = paths.resolveDataDir();
   d.APP_DATA_PATH = d.DATA_DIR;
-  d.VERSIONS_DIR = path.join(d.DATA_DIR, 'versions');
-  d.LIBRARIES_DIR = path.join(d.DATA_DIR, 'libraries');
-  d.ASSETS_DIR = path.join(d.DATA_DIR, 'assets');
-  d.MODS_DIR = path.join(d.DATA_DIR, 'mods');
-  d.NATIVES_DIR = path.join(d.DATA_DIR, 'natives');
+  // 默认游戏数据目录（基于 DATA_DIR，永不改变）
+  d.DEFAULT_VERSIONS_DIR = path.join(d.DATA_DIR, 'versions');
+  d.DEFAULT_LIBRARIES_DIR = path.join(d.DATA_DIR, 'libraries');
+  d.DEFAULT_ASSETS_DIR = path.join(d.DATA_DIR, 'assets');
+  d.DEFAULT_MODS_DIR = path.join(d.DATA_DIR, 'mods');
+  d.DEFAULT_NATIVES_DIR = path.join(d.DATA_DIR, 'natives');
+  // 重置激活游戏根目录为默认（取消外部文件夹切换）
+  d.ACTIVE_GAME_ROOT = d.DATA_DIR;
+  // 当前游戏数据目录默认指向 DEFAULT_*
+  d.VERSIONS_DIR = d.DEFAULT_VERSIONS_DIR;
+  d.LIBRARIES_DIR = d.DEFAULT_LIBRARIES_DIR;
+  d.ASSETS_DIR = d.DEFAULT_ASSETS_DIR;
+  d.MODS_DIR = d.DEFAULT_MODS_DIR;
+  d.NATIVES_DIR = d.DEFAULT_NATIVES_DIR;
+  // 配置文件目录（始终基于 DATA_DIR）
   d.ACCOUNTS_FILE = path.join(d.DATA_DIR, 'accounts.json');
   d.SETTINGS_FILE = path.join(d.DATA_DIR, 'settings.json');
   d.JAVA_DIR = getSafeJavaDir();
@@ -335,6 +357,47 @@ function reinitPaths() {
   d.SKIN_BACKUP_DIR = path.join(d.DATA_DIR, 'skin-backups');
   d.TERRACOTTA_DATA_DIR = path.join(d.DATA_DIR, 'tools', 'terracotta');
   d.TERRACOTTA_LOG_FILE = path.join(d.DATA_DIR, 'terracotta.log');
+}
+
+/**
+ * 切换当前激活的游戏根目录
+ * 切换后，所有游戏数据目录（VERSIONS/LIBRARIES/ASSETS/MODS/NATIVES）指向新的根目录。
+ * 配置文件（账号/设置/外部文件夹列表等）不受影响，始终在 DATA_DIR。
+ * @param {string|null} gameRoot - 游戏根目录路径；传 null 或空字符串恢复为默认 DATA_DIR
+ * @returns {string} 切换后的 ACTIVE_GAME_ROOT 路径
+ */
+function setActiveGameRoot(gameRoot) {
+  const d = ctx.dirs;
+  if (!gameRoot || gameRoot === d.DATA_DIR) {
+    d.ACTIVE_GAME_ROOT = d.DATA_DIR;
+    d.VERSIONS_DIR = d.DEFAULT_VERSIONS_DIR;
+    d.LIBRARIES_DIR = d.DEFAULT_LIBRARIES_DIR;
+    d.ASSETS_DIR = d.DEFAULT_ASSETS_DIR;
+    d.MODS_DIR = d.DEFAULT_MODS_DIR;
+    d.NATIVES_DIR = d.DEFAULT_NATIVES_DIR;
+  } else {
+    d.ACTIVE_GAME_ROOT = gameRoot;
+    d.VERSIONS_DIR = path.join(gameRoot, 'versions');
+    d.LIBRARIES_DIR = path.join(gameRoot, 'libraries');
+    d.ASSETS_DIR = path.join(gameRoot, 'assets');
+    d.MODS_DIR = path.join(gameRoot, 'mods');
+    d.NATIVES_DIR = path.join(gameRoot, 'natives');
+    // 确保目录存在
+    try {
+      fs.mkdirSync(d.VERSIONS_DIR, { recursive: true });
+      fs.mkdirSync(d.LIBRARIES_DIR, { recursive: true });
+      fs.mkdirSync(d.ASSETS_DIR, { recursive: true });
+    } catch (e) {
+      console.warn(`[Context] 创建游戏目录失败: ${e.message}`);
+    }
+  }
+  // 失效所有缓存（版本列表、依赖检查、解析JSON等）
+  ctx.caches._versionsCache = null;
+  ctx.caches._versionsCacheTime = 0;
+  ctx.caches._resolvedJsonCache = new Map();
+  ctx.caches._resolvedJsonCacheTime = new Map();
+  ctx.caches._depCheckCache = new Map();
+  return d.ACTIVE_GAME_ROOT;
 }
 
 reinitPaths();
@@ -534,5 +597,6 @@ const DownloadManager = {
 
 ctx.DownloadManager = DownloadManager;
 ctx.reinitPaths = reinitPaths;
+ctx.setActiveGameRoot = setActiveGameRoot;
 
 module.exports = ctx;

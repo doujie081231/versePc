@@ -42,7 +42,7 @@ const PageJava = {
           
           <div class="card" style="margin-top: 20px;">
             <h3>下载Java</h3>
-            <p class="hint">选择需要的Java版本进行下载，系统将自动尝试多个下载源以获得最佳速度</p>
+            <p class="hint">选择需要的Java版本进行下载</p>
             
             <div id="java-download-list" class="java-download-list">
               <div class="loading">正在获取Java版本列表...</div>
@@ -61,7 +61,7 @@ const PageJava = {
             </div>
             
             <div class="java-download-tip" style="margin-top: 16px; padding: 12px 16px; background: var(--bg-tertiary); border-radius: var(--radius); border-left: 3px solid var(--orange); font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
-              <strong style="color: var(--orange);">提示：</strong>下载将自动尝试国内镜像源（中科大/清华/中科院），如全部失败会回退到 Adoptium 官方。你也可以前往 <a href="https://adoptium.net/zh-CN/temurin/releases/" target="_blank" style="color: var(--accent); text-decoration: underline;">Adoptium 官网</a> 手动下载，安装后在上方「已安装的Java」中点击刷新即可自动检测。
+              <strong style="color: var(--orange);">提示：</strong>下载使用国内镜像源，如遇网络问题也可前往 <a href="https://adoptium.net/zh-CN/temurin/releases/" target="_blank" style="color: var(--accent); text-decoration: underline;">Adoptium 官网</a> 手动下载，安装后在上方「已安装的Java」中点击刷新即可自动检测。
             </div>
           </div>
           

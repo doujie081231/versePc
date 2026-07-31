@@ -24,9 +24,10 @@ module.exports = {
             const importData = await readBody(req);
             const importFilePath = importData.filePath;
             const targetVersion = importData.targetVersion || '';
+            const targetFolder = importData.targetFolder || '';
             if (!importFilePath) { sendError(res, 'Missing filePath', 400); return; }
             try {
-                const result = await modpack.importModpackFromPath(importFilePath, null, targetVersion);
+                const result = await modpack.importModpackFromPath(importFilePath, null, targetVersion, null, targetFolder);
                 sendJSON(res, result);
             } catch (e) {
                 sendJSON(res, { success: false, error: e.message });

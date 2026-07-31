@@ -574,18 +574,6 @@ module.exports = {
       })();
     });
 
-    /* /api/java/download-sources - 返回可选的 Java 下载源列表 */
-    registerRoute('GET', '/api/java/download-sources', async (req, res, parsedUrl) => {
-      sendJSON(res, {
-        success: true,
-        sources: [
-          { id: 'bmclapi', name: 'BMCLAPI镜像', description: '国内加速镜像(bangbang93)' },
-          { id: 'mojang', name: 'Mojang官方源', description: 'Minecraft官方Java运行时' },
-          { id: 'temurin', name: 'Adoptium (Temurin)', description: 'Eclipse开源JDK' }
-        ]
-      });
-    });
-
     /* /api/java/list - 返回推荐的 Java 大版本列表 */
     registerRoute('GET', '/api/java/list', async (req, res, parsedUrl) => {
       try {

@@ -246,16 +246,16 @@ function switchPage(pageName) {
   }
 
   if (currentPage) {
-    currentPage.style.animation = 'pageOut 0.18s var(--ease-out-expo) forwards';
+    currentPage.style.animation = 'pageOut 0.2s var(--ease-out-expo) forwards';
     setTimeout(() => {
       currentPage.classList.remove('active');
       currentPage.style.animation = '';
       target.classList.add('active');
-      target.style.animation = 'pageIn 0.35s var(--ease-out-expo) backwards';
-    }, 160);
+      target.style.animation = 'pageIn 0.3s var(--ease-out-expo) backwards';
+    }, 180);
   } else {
     target.classList.add('active');
-    target.style.animation = 'pageIn 0.35s var(--ease-out-expo) backwards';
+    target.style.animation = 'pageIn 0.3s var(--ease-out-expo) backwards';
   }
 
   previousPage = currentPage?.id?.replace('page-', '') || null;

@@ -238,7 +238,7 @@ function toggleErrorVersions(id) {
 // ============================================================================
 
 // 渲染已安装版本列表到指定容器（供独立"已安装版本"页面和版本管理页复用）
-function renderInstalledVersionsInto(container) {
+function renderInstalledVersionsInto(container, skipAnim) {
   const selectedFolder = getSelectedFolder();
   let versions = installedVersions;
   if (selectedFolder === '__internal') {
@@ -341,13 +341,15 @@ function renderInstalledVersionsInto(container) {
   }
 
   container.innerHTML = html;
+  if (!skipAnim) _playCardStackAnim(container, 0);
 }
 
 function renderVersions() {
   const container = document.getElementById('versions-list');
   if (!container) return;
   if (currentVersionTab === 'installed') {
-    renderInstalledVersionsInto(container);
+    renderInstalledVersionsInto(container, true);
+    _playCardStackAnim(container, 0);
     return;
   }
 
@@ -390,6 +392,7 @@ function renderVersions() {
       </div>
     </div>`;
   }).join('');
+  _playCardStackAnim(container, 0);
 }
 
 let currentVersionDetail = null;
@@ -399,6 +402,39 @@ const AVATAR_CACHE_VERSION = 9;
 
 let _pageTransitionLock = false;
 let _pendingPageTransition = null;
+let _cardStackAnimToken = 0;
+
+function _playCardStackAnim(container, startDelay) {
+  if (!container) return;
+  const token = ++_cardStackAnimToken;
+  const items = container.querySelectorAll('.version-item, .error-version-item');
+  if (items.length === 0) return;
+  const total = items.length;
+  const maxTotalStagger = 240;
+  const stagger = total > 1 ? Math.min(14, maxTotalStagger / (total - 1)) : 0;
+  const baseDelay = startDelay || 0;
+
+  // 清理上一次的状态
+  container.classList.remove('card-stack-go', 'card-stack-done');
+
+  // 给每个卡片只设置 animation-delay（轻量操作），然后同步添加启动类
+  // 浏览器在下一帧会一次性应用所有样式，不会闪现
+  items.forEach((el, i) => {
+    const reverseIndex = total - 1 - i;
+    el.style.animationDelay = (baseDelay + reverseIndex * stagger) + 'ms';
+  });
+  container.classList.add('card-stack-go');
+
+  // 动画全部结束后清理（用定时器比事件监听更可靠、更轻量）
+  const lastDelay = baseDelay + (total - 1) * stagger;
+  const cleanupDelay = lastDelay + 260; // 220ms duration + small buffer
+  setTimeout(() => {
+    if (token !== _cardStackAnimToken) return;
+    container.classList.remove('card-stack-go');
+    container.classList.add('card-stack-done');
+    items.forEach(el => { el.style.animationDelay = ''; });
+  }, cleanupDelay);
+}
 
 async function navigateToPage(pageName) {
   if (_pageTransitionLock) {
@@ -469,7 +505,11 @@ async function navigateToPage(pageName) {
         currentPage.style.animation = '';
         target.classList.add('active');
         target.scrollTop = 0;
-        target.style.animation = 'pageIn 0.18s var(--ease-out-expo) backwards';
+        target.style.animation = 'pageIn 0.3s var(--ease-out-expo) backwards';
+        if (pageName === 'versions') {
+          const vl = document.getElementById('versions-list');
+          if (vl) _playCardStackAnim(vl, 0);
+        }
       } finally {
         setTimeout(() => {
           _pageTransitionLock = false;
@@ -480,13 +520,17 @@ async function navigateToPage(pageName) {
           } else {
             _pendingPageTransition = null;
           }
-        }, 80);
+        }, 120);
       }
     });
   } else if (!currentPage) {
     target.classList.add('active');
     target.scrollTop = 0;
-    target.style.animation = 'pageIn 0.18s var(--ease-out-expo) backwards';
+    target.style.animation = 'pageIn 0.3s var(--ease-out-expo) backwards';
+    if (pageName === 'versions') {
+      const vl = document.getElementById('versions-list');
+      if (vl) _playCardStackAnim(vl, 0);
+    }
   }
   
   if (isDetailPage) {
@@ -789,7 +833,8 @@ function confirmInstallVersion() {
 
 async function installVersionWithLoader(versionUrl, versionId, loaderInfo, downloadSource, customName = '') {
   try {
-    const result = await API.installVersion(versionUrl, versionId, loaderInfo, downloadSource, customName);
+    const targetFolder = getSelectedFolder();
+    const result = await API.installVersion(versionUrl, versionId, loaderInfo, downloadSource, customName, targetFolder);
     if (result.success) {
       currentInstallSessionId = result.sessionId;
       // 如果有 Fabric API 待安装，保存信息供安装完成后使用
@@ -812,7 +857,8 @@ async function installVersionWithLoader(versionUrl, versionId, loaderInfo, downl
 
 async function installVersion(versionUrl, versionId) {
   try {
-    const result = await API.installVersion(versionUrl, versionId);
+    const targetFolder = getSelectedFolder();
+    const result = await API.installVersion(versionUrl, versionId, null, 'mojang', '', targetFolder);
     if (result.success) {
       currentInstallSessionId = result.sessionId;
       showInstallModal(versionId);

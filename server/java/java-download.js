@@ -31,7 +31,7 @@ function saveSettings(settings) {
 /* Temurin 镜像 URL */
 
 /**
- * 把 GitHub Adoptium Temurin 下载 URL 转为国内镜像 URL 数组（USTC/TUNA/ISCAS）
+ * 把 GitHub Adoptium Temurin 下载 URL 转为国内镜像 URL 数组（仅 USTC）
  * @param {string} githubUrl - GitHub 原始下载 URL
  * @param {string} [osName='windows'] - 操作系统名
  * @param {string} [arch='x64'] - 架构
@@ -70,12 +70,10 @@ function getTemurinMirrorUrl(githubUrl, osName = 'windows', arch = 'x64') {
     return githubUrl;
   }
   if (!majorVer || !fileName) return githubUrl;
-  const mirrors = [
-    `https://mirrors.ustc.edu.cn/adoptium/releases/temurin${majorVer}-binaries/${tag}/${fileName}`,
-    `https://mirrors.tuna.tsinghua.edu.cn/Adoptium/releases/temurin${majorVer}-binaries/${tag}/${fileName}`,
-    `https://mirror.iscas.ac.cn/adoptium/releases/temurin${majorVer}-binaries/${tag}/${fileName}`
+  // 仅保留中科大镜像（清华 TUNA 已 404 失效、中科院 ISCAS 已超时不可用）
+  return [
+    `https://mirrors.ustc.edu.cn/adoptium/releases/temurin${majorVer}-binaries/${tag}/${fileName}`
   ];
-  return mirrors;
 }
 
 /* Liberica JDK 最新版本 */
@@ -184,11 +182,9 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
     let fileName = '';
     let totalSize = 0;
 
-    // 候选镜像：USTC、TUNA、ISCAS（并行探测延迟，选最快者）
+    // 候选镜像：仅中科大 USTC（清华 TUNA 已 404 失效、中科院 ISCAS 已超时不可用）
     const mirrorBases = [
-      `https://mirrors.ustc.edu.cn/adoptium/releases/temurin${majorVersion}-binaries/`,
-      `https://mirrors.tuna.tsinghua.edu.cn/Adoptium/releases/temurin${majorVersion}-binaries/`,
-      `https://mirror.iscas.ac.cn/adoptium/releases/temurin${majorVersion}-binaries/`
+      `https://mirrors.ustc.edu.cn/adoptium/releases/temurin${majorVersion}-binaries/`
     ];
 
     // 并行探测每个镜像：拉取目录列表 → 解析最新 JDK 目录 → HEAD 验证文件可下

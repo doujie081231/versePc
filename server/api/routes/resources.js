@@ -257,7 +257,7 @@ module.exports = {
                         }],
                         game_versions: (cfFile.gameVersions || []).filter(v => /^\d+\.\d+/.test(v))
                     };
-                    projectInfo = cfMod ? { title: cfMod.name || rdProjectId } : null;
+                    projectInfo = cfMod ? { title: cfMod.name || rdProjectId, iconUrl: cfMod.logo?.url || '' } : null;
                 } else {
                     // Modrinth：原有逻辑
                     let _versionPromise;
@@ -298,6 +298,13 @@ module.exports = {
                 if (_isModpackFetch) {
                     mcVersion = versionData.game_versions?.[0] || '';
                     packName = projectInfo?.title || rdProjectId;
+                }
+
+                // 提取整合包封面图标 URL，导入时保存到版本目录，使版本列表能立即显示封面
+                let _modpackIconUrl = '';
+                if (_isModpackFetch && projectInfo) {
+                    const _rawIcon = rdSource === 'curseforge' ? (projectInfo.iconUrl || '') : (projectInfo.icon_url || '');
+                    if (_rawIcon) _modpackIconUrl = utils.applyImageMirror(_rawIcon) || _rawIcon;
                 }
 
                 const safeName = (fileName || `${rdProjectId}.jar`).replace(/[^a-zA-Z0-9._\-]/g, '_');
@@ -510,7 +517,7 @@ module.exports = {
                                             }
                                         }
                                     } catch (_) {}
-                                }, rdType === 'modpack' ? rdCustomName : targetVersionId, abortController.signal);
+                                }, rdType === 'modpack' ? rdCustomName : targetVersionId, abortController.signal, '', _modpackIconUrl);
 
                                 const s = ctx.sessions.modDownloadSessions.get(sessionId);
                                 if (s && s.status === 'cancelled') {

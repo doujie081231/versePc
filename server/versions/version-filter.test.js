@@ -59,7 +59,7 @@ describe('filterVersionsByVisibility - 加载器版本可见性', () => {
     assert.ok(ids.includes('1.20.1-forge-47.4.20'), '独立安装的加载器版本应显示');
   });
 
-  test('纯原版基础版本被继承时仍应隐藏（不回归旧修复）', () => {
+  test('纯原版基础版本被继承时应显示（用户可直接启动原版）', () => {
     const installed = [
       { id: '我的整合包', inheritsFrom: '1.20.1', isForge: false, error: false },
       { id: '1.20.1', inheritsFrom: null, isForge: false, error: false }
@@ -74,7 +74,7 @@ describe('filterVersionsByVisibility - 加载器版本可见性', () => {
     });
 
     const ids = result.map((v) => v.id);
-    assert.ok(!ids.includes('1.20.1'), '纯原版基础版本应隐藏');
+    assert.ok(ids.includes('1.20.1'), '纯原版基础版本应显示');
     assert.ok(ids.includes('我的整合包'), '整合包版本应显示');
   });
 });
