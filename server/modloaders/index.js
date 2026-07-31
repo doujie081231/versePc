@@ -17,9 +17,6 @@ const fabric = require('./fabric');
 const neoforge = require('./neoforge');
 const optifine = require('./optifine');
 
-// @xmcl/installer 引擎：替代自研安装逻辑
-const xmclInstall = require('./xmcl-install');
-
 // 解构出 performInstallation 编排逻辑需要直接调用的函数
 const { ensureBaseVersionInstalled } = shared;
 const { installForge } = forge;
@@ -51,17 +48,14 @@ function _server() {
  * @throws {Error} 安装失败时抛出异常
  */
 async function performInstallation(sessionId, versionDetails) {
-  // 使用 @xmcl/installer 引擎完全替代原有自研安装逻辑
-  const session = ctx.sessions.installSessions.get(sessionId);
-  if (!session) return;
-  await xmclInstall.performInstallationWithXmcl(sessionId, versionDetails, session, ctx);
-  return;
-  // ===== 以下为原有自研安装逻辑，已被 @xmcl/installer 替代，不再执行 =====
   while (ctx._installMutex) {
     try { await ctx._installMutex; } catch (_) {}
   }
   let releaseMutex;
   ctx._installMutex = new Promise((resolve) => { releaseMutex = resolve; });
+
+  const session = ctx.sessions.installSessions.get(sessionId);
+  if (!session) { releaseMutex(); ctx._installMutex = null; return; }
 
   const isAborted = () => {
     return session.status === 'cancelled' || (session._abortController && session._abortController.signal.aborted);
