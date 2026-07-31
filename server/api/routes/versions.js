@@ -592,6 +592,14 @@ module.exports = {
                   deleteError = e.message || '删除失败';
                 }
               }
+            } else if (process.platform !== 'win32') {
+              // 非 Windows 平台没有系统回收站接口，直接强制删除
+              try {
+                fs.rmSync(versionDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+                deleted = true;
+              } catch (e) {
+                deleteError = e.message || '删除失败';
+              }
             } else {
               try {
                 const recycleBin = require('recycle-bin');
@@ -1468,6 +1476,12 @@ module.exports = {
               if (i < 4) try { execSync('ping -n 1 127.0.0.1 >nul 2>&1', { timeout: 1000 }); } catch (_e) {}
             }
           }
+        } else if (process.platform !== 'win32') {
+          // 非 Windows 平台没有系统回收站接口，直接强制删除
+          try {
+            fs.rmSync(versionDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+            ok = true;
+          } catch (_) {}
         } else {
           // 回收站模式：优先 recycle-bin，回退到 PowerShell VisualBasic
           try {
