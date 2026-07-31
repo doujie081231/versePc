@@ -1,0 +1,86 @@
+name: Build Mac & Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm install
+        env:
+          npm_config_build_from_source: 'false'
+
+      - name: Generate integrity manifest
+        run: node build-scripts/generate-integrity.js
+
+      - name: Build macOS
+        run: npx electron-builder --mac --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VersePC-mac
+          path: |
+            dist/*.dmg
+            dist/*-mac.zip
+          if-no-files-found: warn
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 libsnappy-dev libsecret-1-dev
+
+      - name: Install dependencies
+        run: npm install
+        env:
+          npm_config_build_from_source: 'false'
+
+      - name: Generate integrity manifest
+        run: node build-scripts/generate-integrity.js
+
+      - name: Build Linux
+        run: npx electron-builder --linux --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VersePC-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: warn
