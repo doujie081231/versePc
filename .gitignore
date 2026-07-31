@@ -2,6 +2,9 @@ node_modules/
 verse-public/
 dist/
 dist-renderer/
+# vendor 下的 dist 是预构建的 @xmcl 包产物，必须随仓库提交
+!vendor/**/dist/
+!vendor/**/dist/**
 dist-new/
 dist-installer/
 dist-build/

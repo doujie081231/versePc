@@ -1,0 +1,8 @@
+{
+  "name": "@xmcl/yauzl",
+  "version": "2.10.0",
+  "main": "./index.js",
+  "dependencies": {
+    "yauzl": "^3.2.0"
+  }
+}
