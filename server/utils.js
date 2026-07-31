@@ -873,7 +873,8 @@ module.exports = {
   calculateSHA1Sync,
   verifyFileSha1,
   verifyFileSha1Sync,
-  applyImageMirror
+  applyImageMirror,
+  fetchImageBuffer
 };
 
 /* 图片 URL 镜像替换：把 Modrinth/CurseForge CDN 图片转成后端代理 URL。
@@ -895,4 +896,62 @@ function applyImageMirror(url) {
     }
   }
   return url;
+}
+
+/* 下载图片为 Buffer：直连 → 跟随重定向 → CDN 镜像回退。
+   供整合包封面图标下载等场景使用，统一处理国内被墙的 Modrinth/CurseForge CDN。
+   原始 URL 作为入参，不存代理路径，避免 https.get 请求相对路径导致下载失败。 */
+const _CDN_MIRRORS_MAP = [
+  { prefix: 'https://cdn.modrinth.com/', mirror: 'https://mod.mcimirror.top/cdn/modrinth/' },
+  { prefix: 'https://cdn-alt.modrinth.com/', mirror: 'https://mod.mcimirror.top/cdn/modrinth/' },
+  { prefix: 'https://edge.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' },
+  { prefix: 'https://mediafilez.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' },
+  { prefix: 'https://media.forgecdn.net/', mirror: 'https://mod.mcimirror.top/cdn/curseforge/' }
+];
+function _cdnMirrorOf(url) {
+  for (const m of _CDN_MIRRORS_MAP) {
+    if (url.startsWith(m.prefix)) return m.mirror + url.slice(m.prefix.length);
+  }
+  return null;
+}
+function fetchImageBuffer(url, maxRedirects = 5) {
+  const https = require('https');
+  const http = require('http');
+  return new Promise((resolve) => {
+    if (!url || typeof url !== 'string') { resolve(null); return; }
+    const _try = (u, redirectsLeft, onMirrored) => {
+      const client = u.startsWith('https') ? https : http;
+      const opts = { timeout: 15000, headers: { 'User-Agent': 'VersePC/1.0' } };
+      client.get(u, opts, (resp) => {
+        if ([301, 302, 303, 307, 308].includes(resp.statusCode) && resp.headers.location && redirectsLeft > 0) {
+          resp.resume();
+          let next = resp.headers.location;
+          if (next.startsWith('/')) next = new URL(u).origin + next;
+          _try(next, redirectsLeft - 1, onMirrored);
+          return;
+        }
+        if (resp.statusCode !== 200) {
+          resp.resume();
+          onMirrored();
+          return;
+        }
+        const mime = resp.headers['content-type'] || 'image/png';
+        const chunks = [];
+        resp.on('data', (c) => chunks.push(c));
+        resp.on('end', () => resolve({ buf: Buffer.concat(chunks), mime }));
+      }).on('error', () => onMirrored()).on('timeout', function () {
+        this.destroy();
+        onMirrored();
+      });
+    };
+    _try(url, maxRedirects, () => {
+      // 直连失败，尝试镜像
+      const mirror = _cdnMirrorOf(url);
+      if (mirror) {
+        _try(mirror, maxRedirects, () => resolve(null));
+      } else {
+        resolve(null);
+      }
+    });
+  });
 }

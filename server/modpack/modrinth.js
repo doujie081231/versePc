@@ -71,7 +71,7 @@ async function _importMrpack(zip, manifestEntry, filePath, progress, targetVersi
       }
     }
     if (!versionDir) {
-      versionId = _dedupeVersionId(packName);
+      versionId = _dedupeVersionId(cleanTargetId);
       versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
     }
   } else {

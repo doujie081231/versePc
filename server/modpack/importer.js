@@ -63,7 +63,8 @@ async function _saveModpackIcon(versionId, iconUrl) {
   const versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
   if (!fs.existsSync(versionDir)) return;
 
-  // 把图标 URL 写入 pack-info.json，供版本图标接口在本地文件缺失时回退使用
+  // 把图标原始 URL 写入 pack-info.json，供版本图标接口在本地文件缺失时回退使用
+  // 必须存原始 URL，不能存 /api/img-proxy 代理路径，否则后续 https.get 无法请求相对路径
   const packInfoPath = path.join(versionDir, 'pack-info.json');
   if (fs.existsSync(packInfoPath)) {
     try {
@@ -79,27 +80,10 @@ async function _saveModpackIcon(versionId, iconUrl) {
   const localIcons = ['icon.png', 'pack.png', 'logo.png'];
   if (localIcons.some(f => fs.existsSync(path.join(versionDir, f)))) return;
 
-  const https = require('https');
-  const iconData = await new Promise((resolve) => {
-    const r = https.get(iconUrl, { timeout: 10000 }, (resp) => {
-      // 部分图标 URL 可能经过镜像转发，跟随重定向
-      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
-        https.get(resp.headers.location, { timeout: 10000 }, (r2) => {
-          const chunks = [];
-          r2.on('data', (c) => chunks.push(c));
-          r2.on('end', () => resolve(Buffer.concat(chunks)));
-        }).on('error', () => resolve(null)).on('timeout', function () { this.destroy(); resolve(null); });
-        return;
-      }
-      const chunks = [];
-      resp.on('data', (c) => chunks.push(c));
-      resp.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-    r.on('error', () => resolve(null));
-    r.on('timeout', () => { r.destroy(); resolve(null); });
-  });
-  if (iconData && iconData.length > 0) {
-    try { fs.writeFileSync(path.join(versionDir, 'icon.png'), iconData); } catch (_) {}
+  // 使用统一的图片下载函数：直连→重定向→CDN镜像回退，解决国内被墙问题
+  const result = await utils.fetchImageBuffer(iconUrl);
+  if (result && result.buf && result.buf.length > 0) {
+    try { fs.writeFileSync(path.join(versionDir, 'icon.png'), result.buf); } catch (_) {}
   }
 }
 
@@ -311,7 +295,7 @@ async function _importHmcl(zip, hmclEntry, filePath, progress, targetVersion = '
             }
         }
         if (!fs.existsSync(versionDir)) {
-            versionId = _dedupeVersionId(packName);
+            versionId = _dedupeVersionId(versionId);
             versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
         }
     }
@@ -461,7 +445,7 @@ async function _importRawZip(zip, filePath, progress, targetVersion = '', abortS
             }
         }
         if (!versionDir) {
-            versionId = _dedupeVersionId(packName);
+            versionId = _dedupeVersionId(cleanTargetId);
             versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
         }
     } else {

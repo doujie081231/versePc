@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file server/modpack/curseforge.js - CurseForge 整合包导入
  * @description 解析 manifest.json，安装基础版本与模组加载器，下载 mods 与 overrides。
  */
@@ -95,7 +95,7 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
       }
     }
     if (!versionDir) {
-      versionId = _dedupeVersionId(packName);
+      versionId = _dedupeVersionId(cleanTargetId);
       versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
     }
   } else {

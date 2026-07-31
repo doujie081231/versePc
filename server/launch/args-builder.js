@@ -684,9 +684,17 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
   }
 
   // 旧版 Minecraft 使用 minecraftArguments 字段（空格分隔模板）
+  // [关键修复] 必须先对模板分词，再对每个 token 单独做变量替换。
+  // 反例（旧实现）：先 replaceVariables 再 split(' ')，当 version_name="SkyFactory 4" 时
+  //   替换后的 "SkyFactory 4" 会被误拆成 ["SkyFactory", "4"] 两个参数，
+  //   导致 --version 和 --gameDir 被截断，Forge 找不到 mods 目录，整合包只加载4个基础mod。
   if (versionJson.minecraftArguments) {
     const template = versionJson.minecraftArguments;
-    gameArgs.push(...utils.replaceVariables(template, variables).split(' ').filter((a) => a));
+    const tokens = template.split(' ').filter((a) => a);
+    for (const tok of tokens) {
+      const replaced = utils.replaceVariables(tok, variables);
+      if (replaced) gameArgs.push(replaced);
+    }
   }
 
   if (settings.fullscreen) {

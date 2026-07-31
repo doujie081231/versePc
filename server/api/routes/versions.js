@@ -1344,7 +1344,6 @@ module.exports = {
             const packInfoPath = path.join(ctx.dirs.VERSIONS_DIR, cleanId, 'pack-info.json');
             if (fs.existsSync(packInfoPath)) {
               const packInfo = JSON.parse(fs.readFileSync(packInfoPath, 'utf8'));
-              const https = require('https');
               // 优先用 pack-info.json 中记录的图标 URL 直接下载（下载整合包时已保存）
               let iconUrl = '';
               if (packInfo.iconUrl) {
@@ -1354,41 +1353,21 @@ module.exports = {
                 const packName = packInfo.name || cleanId;
                 const modrinthApi = (ctx.urls && ctx.urls.MODRINTH_API) || 'https://api.modrinth.com/v2';
                 const searchUrl = `${modrinthApi}/search?query=${encodeURIComponent(packName)}&facets=${JSON.stringify([["project_type:modpack"]])}&limit=1`;
-                const searchResult = await new Promise((resolve) => {
-                  const r = https.get(searchUrl, { timeout: 8000 }, (resp) => {
-                    let data = '';
-                    resp.on('data', (chunk) => data += chunk);
-                    resp.on('end', () => {
-                      try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
-                    });
-                  });
-                  r.on('error', () => resolve(null));
-                  r.on('timeout', () => { r.destroy(); resolve(null); });
-                });
-                iconUrl = searchResult && searchResult.hits && searchResult.hits[0] && searchResult.hits[0].icon;
+                const searchResult = await utils.fetchImageBuffer(searchUrl);
+                if (searchResult && searchResult.buf) {
+                  try {
+                    const data = JSON.parse(searchResult.buf.toString());
+                    iconUrl = data && data.hits && data.hits[0] && data.hits[0].icon;
+                  } catch (_) {}
+                }
               }
               if (iconUrl) {
-                const iconData = await new Promise((resolve) => {
-                  const r = https.get(iconUrl, { timeout: 10000 }, (resp) => {
-                    if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
-                      https.get(resp.headers.location, { timeout: 10000 }, (r2) => {
-                        const chunks = [];
-                        r2.on('data', (c) => chunks.push(c));
-                        r2.on('end', () => resolve(Buffer.concat(chunks)));
-                      }).on('error', () => resolve(null)).on('timeout', function () { this.destroy(); resolve(null); });
-                      return;
-                    }
-                    const chunks = [];
-                    resp.on('data', (chunk) => chunks.push(chunk));
-                    resp.on('end', () => resolve(Buffer.concat(chunks)));
-                  });
-                  r.on('error', () => resolve(null));
-                  r.on('timeout', () => { r.destroy(); resolve(null); });
-                });
-                if (iconData && iconData.length > 0) {
+                // 使用统一的图片下载函数：直连→重定向→CDN镜像回退
+                const result = await utils.fetchImageBuffer(iconUrl);
+                if (result && result.buf && result.buf.length > 0) {
                   const destIconPath = path.join(ctx.dirs.VERSIONS_DIR, cleanId, 'icon.png');
-                  try { fs.writeFileSync(destIconPath, iconData); } catch (_) {}
-                  customIconData = { data: iconData, mime: 'image/png' };
+                  try { fs.writeFileSync(destIconPath, result.buf); } catch (_) {}
+                  customIconData = { data: result.buf, mime: result.mime || 'image/png' };
                 }
               }
             }
