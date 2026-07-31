@@ -2,7 +2,7 @@
   "version": "1.3.1",
   "releaseName": "v1.3.1",
   "releaseDate": "2026-07-31",
-  "releaseNotes": "查看 GitHub Releases 获取更新日志：https://github.com/doujie081231/versePc/releases",
+  "releaseNotes": "修复:\n- Windows 回收站（recycle-bin）改为可选依赖，修复非 Windows 平台构建失败\n- 恢复 xmcl-download.js 下载引擎至版本控制，确保下载功能正常\n\n优化:\n- Java 下载源精简为仅保留中科大 USTC 源，提升国内下载速度\n- 版本列表现在显示所有继承基础版本，方便选择\n- 开服页面 UI 优化\n- 致谢页新增 XMCL 致谢卡片\n\n其他:\n- 尝试引入并回退 @xmcl/installer 安装器引擎（技术验证后放弃）\n- 移除冗余的 vendor/xmcl 源码副本目录，减少仓库体积",
   "files": {
     "win-x64": {
       "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.1/VersePC-Setup-1.3.1.exe",
