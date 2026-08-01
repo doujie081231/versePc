@@ -169,7 +169,7 @@ module.exports = {
 
       try {
         const settings = versions.loadSettingsCached();
-        let javaPath = settings.javaPath;
+        let javaPath = '';
         // 未配置 Java 时自动检测系统与内置 Java
         if (!javaPath) {
           const allJava = [...java.detectBundledJava(), ...java.detectSystemJava()];
@@ -766,11 +766,6 @@ module.exports = {
         exportParts.push(`[环境信息]`);
         exportParts.push(`数据目录: ${ctx.dirs.DATA_DIR}`);
         exportParts.push(`JAVA_DIR: ${ctx.dirs.JAVA_DIR}`);
-        exportParts.push(`Java路径: ${settings.javaPath || '自动检测'}`);
-        if (settings.javaPath && fs.existsSync(settings.javaPath)) {
-          const _pInfo = java.getJavaVersionInfo(settings.javaPath);
-          exportParts.push(`Java路径版本: ${_pInfo.version} (major=${_pInfo.major})`);
-        }
         exportParts.push(`JAVA_HOME: ${process.env.JAVA_HOME || '未设置'}`);
         exportParts.push(`最大内存: ${settings.maxMemory || 2048}MB`);
         exportParts.push(`版本隔离: ${settings.versionIsolation ? '是' : '否'}`);

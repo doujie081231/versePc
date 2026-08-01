@@ -16,6 +16,8 @@ const natives = require('../natives');
 const { resolveMaxMemory } = require('./memory-resolver');
 const { resolveMemoryMode } = require('./memory-mode-resolver');
 
+const logger = require('../logger').createLogger('ArgsBuilder');
+
 /* 构建启动参数 */
 /**
  * 构建 Minecraft 启动所需的完整 JVM 与游戏参数
@@ -697,41 +699,53 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
     }
   }
 
+  logger.info(`窗口决策: fullscreen=${settings.fullscreen}, resolution=${settings.resolution}`);
+
+  // 先清理 gameArgs 中可能残留的 --fullscreen、--width、--height，
+  // 确保不会因为版本 JSON 或前序处理引入多余的全屏/窗口参数。
+  for (let i = gameArgs.length - 1; i >= 0; i--) {
+    const arg = gameArgs[i];
+    if (arg === '--fullscreen') {
+      gameArgs.splice(i, 1);
+    } else if (arg === '--width' || arg === '--height') {
+      if (i + 1 < gameArgs.length && typeof gameArgs[i + 1] === 'string' && !gameArgs[i + 1].startsWith('--')) {
+        gameArgs.splice(i, 2);
+      } else {
+        gameArgs.splice(i, 1);
+      }
+    }
+  }
+
   if (settings.fullscreen) {
     gameArgs.push('--fullscreen');
+    logger.info(`全屏模式，跳过 --width/--height`);
   } else {
     const resW = parseInt(settings.resolution?.split('x')[0], 10) || 854;
     const resH = parseInt(settings.resolution?.split('x')[1], 10) || 480;
 
-    // 原版窗口修正：模组加载器（Forge/Fabric/NeoForge 等）有自己的 fmlearlywindow
-    // 模块接管窗口创建，不会出现标题栏被顶出屏幕的问题。但原版 Minecraft 用
-    // LWJGL/GLFW 原生窗口，会把 --width/--height 当作"客户区"大小，加上标题栏
-    // 和边框后实际窗口会比屏幕大，导致标题栏被顶到屏幕外（Y 坐标变成负数）。
-    // 这里只在原版（没有 --launchTarget 等模组参数）时减去标题栏+边框高度。
-    const isVanilla = !gameArgs.some((a) => typeof a === 'string' && a.startsWith('--launchTarget'));
     let finalW = resW;
     let finalH = resH;
-    if (isVanilla) {
-      try {
-        const screen = require('electron').screen || null;
-        const display = screen?.getPrimaryDisplay?.();
-        const screenW = display?.size?.width || 0;
-        const screenH = display?.size?.height || 0;
-        const workH = display?.workAreaSize?.height || screenH;
-        // 当用户填的分辨率接近屏幕分辨率（差距 < 40px）时，认为用户想要"铺满屏幕"
-        // 此时把高度减去标题栏+边框（约 39px），宽度减去左右边框（约 16px），
-        // 让实际窗口刚好等于屏幕工作区，标题栏就能正常显示。
-        if (screenW > 0 && screenH > 0) {
-          if (Math.abs(resW - screenW) < 40) finalW = Math.max(resW - 16, 800);
-          if (Math.abs(resH - screenH) < 40 || Math.abs(resH - workH) < 40) finalH = Math.max(resH - 39, 600);
-        }
-      } catch (_) {
-        // 主进程外调用时 require electron 可能失败，忽略即可
+    try {
+      const screen = require('electron').screen || null;
+      const display = screen?.getPrimaryDisplay?.();
+      const screenW = display?.size?.width || 0;
+      const screenH = display?.size?.height || 0;
+      const workH = display?.workAreaSize?.height || screenH;
+      // 窗口尺寸修正：当用户设置的分辨率接近屏幕分辨率（差距 < 40px）时，
+      // 窗口客户区等于屏幕大小，加上标题栏和边框后实际窗口会超出屏幕，
+      // 导致标题栏被顶到屏幕外不可见。此时减去标题栏+边框高度（约 39px）
+      // 和左右边框宽度（约 16px），让窗口刚好占满屏幕工作区，标题栏正常显示。
+      if (screenW > 0 && screenH > 0) {
+        if (Math.abs(resW - screenW) < 40) finalW = Math.max(resW - 16, 800);
+        if (Math.abs(resH - screenH) < 40 || Math.abs(resH - workH) < 40) finalH = Math.max(resH - 39, 600);
       }
+    } catch (_) {
+      // 主进程外调用时 require electron 可能失败，忽略即可
     }
 
-    if (!gameArgs.some((a) => a === '--width')) gameArgs.push('--width', String(finalW));
-    if (!gameArgs.some((a) => a === '--height')) gameArgs.push('--height', String(finalH));
+    logger.info(`最终窗口参数: --width ${finalW}, --height ${finalH} (原始: ${resW}x${resH})`);
+    gameArgs.push('--width', String(finalW));
+    gameArgs.push('--height', String(finalH));
   }
 
   // 设置版本类型显示（也可作为窗口标题来源）

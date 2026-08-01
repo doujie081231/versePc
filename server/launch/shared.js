@@ -236,47 +236,45 @@ function setGameLanguage(gameDir, versionJson, settings) {
 
 /* 应用窗口设置 */
 /**
- * 将全屏/窗口化设置写入 options.txt
+ * 将全屏/窗口化设置写入 options.txt（同时处理 yosbr 目录）
  * @param {string} gameDir - 游戏目录
  * @param {object} settings - 启动设置（需包含 fullscreen 开关）
  */
 function applyWindowSettings(gameDir, settings) {
   try {
-    let optionsPath = path.join(gameDir, 'options.txt');
+    const mainOptionsPath = path.join(gameDir, 'options.txt');
     const yosbrPath = path.join(gameDir, 'config', 'yosbr', 'options.txt');
-    if (!fs.existsSync(optionsPath) && fs.existsSync(yosbrPath)) {
-      optionsPath = yosbrPath;
+
+    // 收集需要写入的路径：主 options.txt 和 yosbr（如果存在）
+    const targetPaths = [mainOptionsPath];
+    if (fs.existsSync(yosbrPath)) {
+      targetPaths.push(yosbrPath);
     }
 
-    let optionsContent = '';
-    if (fs.existsSync(optionsPath)) {
-      optionsContent = fs.readFileSync(optionsPath, 'utf-8');
-    }
+    const fullscreenValue = settings.fullscreen ? 'true' : 'false';
 
-    if (!settings.fullscreen) {
-      if (optionsContent.match(/^fullscreen:/m)) {
-        optionsContent = optionsContent.replace(/^fullscreen:.+$/m, 'fullscreen:false');
-      } else if (optionsContent) {
-        optionsContent += '\nfullscreen:false';
-      } else {
-        optionsContent = 'fullscreen:false\n';
+    for (const optionsPath of targetPaths) {
+      let optionsContent = '';
+      if (fs.existsSync(optionsPath)) {
+        optionsContent = fs.readFileSync(optionsPath, 'utf-8');
       }
-    } else {
+
+      // 替换或追加 fullscreen 行
       if (optionsContent.match(/^fullscreen:/m)) {
-        optionsContent = optionsContent.replace(/^fullscreen:.+$/m, 'fullscreen:true');
+        optionsContent = optionsContent.replace(/^fullscreen:.*$/m, `fullscreen:${fullscreenValue}`);
       } else if (optionsContent) {
-        optionsContent += '\nfullscreen:true';
+        optionsContent += `\nfullscreen:${fullscreenValue}`;
       } else {
-        optionsContent = 'fullscreen:true\n';
+        optionsContent = `fullscreen:${fullscreenValue}\n`;
       }
-    }
 
-    const dir = path.dirname(optionsPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+      const dir = path.dirname(optionsPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
 
-    fs.writeFileSync(optionsPath, optionsContent, 'utf-8');
+      fs.writeFileSync(optionsPath, optionsContent, 'utf-8');
+    }
   } catch (e) {
     console.error('[Options] 写入窗口设置失败:', e.message);
   }

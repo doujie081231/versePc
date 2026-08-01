@@ -41,6 +41,8 @@ module.exports = {
       const versionId = data.versionId;
       if (!versionId) { sendError(res, 'Missing versionId', 400); global._versepc_launching = false; return; }
       const settings = versions.loadSettingsCached();
+      const logger = require('../../logger').createLogger('Launch');
+      logger.info(`设置: 全局默认 fullscreen=${settings.fullscreen}, resolution=${settings.resolution}`);
 
       // 读取前端 store 中的启动设置（窗口大小、全屏、自定义信息、窗口标题），覆盖全局设置
       try {
@@ -50,6 +52,7 @@ module.exports = {
           const launchStr = store['versepc_launch_settings'];
           if (launchStr) {
             const lsData = JSON.parse(launchStr);
+            logger.info(`store 读取: windowSize=${lsData.windowSize}, fullscreen=${lsData.fullscreen}`);
             if (lsData.windowSize) {
               if (lsData.windowSize === 'default') {
                 settings.resolution = '854x480';
@@ -66,21 +69,29 @@ module.exports = {
             if (lsData.windowTitle) {
               settings.windowTitle = lsData.windowTitle;
             }
+          } else {
+            logger.info(`store 中无 versepc_launch_settings`);
           }
+        } else {
+          logger.info(`app-store.json 不存在: ${storePath}`);
         }
       } catch (e) {
+        logger.info(`读取 store 异常: ${e.message}`);
       }
+
+      logger.info(`store 覆盖后: fullscreen=${settings.fullscreen}, resolution=${settings.resolution}`);
 
       // 读取版本级设置（优先级高于全局设置），覆盖自定义信息、窗口标题、全屏、分辨率、内存
       try {
         const verSettings = versions.loadVersionSettings(versionId);
+        logger.info(`版本级设置: fullscreen=${verSettings.fullscreen}, resolution=${verSettings.resolution}`);
         if (verSettings.customInfo) {
           settings.customInfo = verSettings.customInfo;
         }
         if (verSettings.windowTitle) {
           settings.windowTitle = verSettings.windowTitle;
         }
-        if (verSettings.fullscreen && verSettings.fullscreen !== 'global') {
+        if (verSettings.fullscreen !== undefined && verSettings.fullscreen !== 'global') {
           settings.fullscreen = verSettings.fullscreen === true || verSettings.fullscreen === 'true';
         }
         if (verSettings.resolution && verSettings.resolution !== '') {
@@ -95,7 +106,10 @@ module.exports = {
           settings.memoryValue = null;
         }
       } catch (e) {
+        logger.info(`读取版本级设置异常: ${e.message}`);
       }
+
+      logger.info(`最终设置: fullscreen=${settings.fullscreen}, resolution=${settings.resolution}, versionId=${versionId}`);
 
       const acctsList = accounts.loadAccounts();
       if (acctsList.length === 0) {
@@ -263,12 +277,8 @@ module.exports = {
       }
 
       const depResult = await dependencies.checkDependencies(lcCleanId, lcSettings, lcExternalDir);
-      // 收集 Java 诊断信息：设置中的 Java 路径、系统 Java、内置 Java
-      const _javaDiag = { settingsJavaPath: lcSettings.javaPath || '', settingsJavaExists: !!(lcSettings.javaPath && fs.existsSync(lcSettings.javaPath)) };
-      if (lcSettings.javaPath && fs.existsSync(lcSettings.javaPath)) {
-        const _info = java.getJavaVersionInfo(lcSettings.javaPath);
-        _javaDiag.settingsJavaMajor = _info.major;
-      }
+      // 收集 Java 诊断信息：系统 Java、内置 Java
+      const _javaDiag = {};
       const _sysJava = java.detectSystemJava();
       const _bunJava = java.detectBundledJava();
       _javaDiag.systemJavaCount = _sysJava.length;
@@ -502,7 +512,7 @@ module.exports = {
         const acctsList = accounts.loadAccounts();
         const account = acctsList.find((a) => a.id === settings.selectedAccount) || acctsList[0] || { username: 'Player', type: 'offline' };
         const { args } = launch.buildLaunchArguments(versionJson, settings, account);
-        sendJSON(res, { args, javaPath: settings.javaPath || 'auto-detect' });
+        sendJSON(res, { args, javaPath: 'auto-detect' });
       } catch (e) {
         sendError(res, '预览失败: ' + e.message);
       }

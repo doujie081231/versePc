@@ -706,17 +706,9 @@ module.exports = {
               detecting = true;
             }
 
-            // 读取当前使用的 Java 路径供前端标记「当前使用」
-            let currentJavaPath = '';
-            try {
-              const settings = accounts.loadSettingsCached();
-              currentJavaPath = settings.javaPath || '';
-            } catch (e) {}
-
             sendJSON(res, {
               java: javaList,
               total: javaList.length,
-              currentJavaPath: currentJavaPath,
               detecting: detecting
             });
           } catch (e) {
@@ -779,16 +771,6 @@ module.exports = {
         if (!fs.existsSync(javaExe)) {
           sendError(res, '指定目录不是有效的Java安装', 400);
           return;
-        }
-
-        // 清除设置中引用的 Java 路径
-        const settings = accounts.loadSettingsCached();
-        if (settings.javaPath) {
-          const normalizedSettingsPath = settings.javaPath.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-          if (normalizedSettingsPath.startsWith(normalizedJavaHome)) {
-            settings.javaPath = '';
-            accounts.saveSettings(settings);
-          }
         }
 
         // Windows 下清理系统 PATH 与 JAVA_HOME 环境变量
@@ -978,41 +960,6 @@ module.exports = {
       }
     });
 
-    /* /api/java/set-current - 设置当前使用的 Java 路径 */
-    registerRoute('POST', '/api/java/set-current', async (req, res, parsedUrl) => {
-      try {
-        const body = await readBody(req);
-        const { javaPath } = body;
-        if (!javaPath) {
-          sendError(res, '缺少 javaPath 参数', 400);
-          return;
-        }
-        if (!fs.existsSync(javaPath)) {
-          sendError(res, 'Java 文件不存在: ' + javaPath, 400);
-          return;
-        }
-
-        const settings = accounts.loadSettingsCached();
-        settings.javaPath = javaPath;
-        accounts.saveSettings(settings);
-
-        // 同时配置环境变量（如果可能）
-        try {
-          const binDir = path.dirname(javaPath);
-          const javaHome = path.dirname(binDir);
-          const info = java.inspectJavaExe ? java.inspectJavaExe(javaPath) : null;
-          const majorVersion = info ? info.majorVersion : 17;
-          await java.configureJavaEnv(javaHome, majorVersion);
-        } catch (e) {
-          console.warn('[Java] 配置环境变量失败（不影响设置）:', e.message);
-        }
-
-        sendJSON(res, { success: true, message: '已设为当前 Java' });
-      } catch (e) {
-        sendError(res, '设置当前 Java 失败: ' + e.message);
-      }
-    });
-
     /* /api/java/remove-custom - 移除自定义添加/导入的 Java
      * body: { javaHome: '...', deleteFiles: boolean }
      * deleteFiles=true 时同时删除导入的文件（仅对 source=imported 有效）
@@ -1025,19 +972,6 @@ module.exports = {
           sendError(res, '缺少 javaHome 参数', 400);
           return;
         }
-
-        // 如果是当前使用的 Java，清空设置
-        try {
-          const settings = accounts.loadSettingsCached();
-          if (settings.javaPath) {
-            const normalizedSettings = settings.javaPath.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-            const normalizedHome = javaHome.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
-            if (normalizedSettings.startsWith(normalizedHome)) {
-              settings.javaPath = '';
-              accounts.saveSettings(settings);
-            }
-          }
-        } catch (e) {}
 
         const result = java.removeCustomJava(javaHome, !!deleteFiles);
         if (result.success) {

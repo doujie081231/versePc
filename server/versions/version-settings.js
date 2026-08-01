@@ -12,7 +12,6 @@ function loadSettingsCached() {
     return ctx.caches._settingsCache;
   }
   const defaults = {
-    javaPath: '',
     maxMemory: 4096,
     minMemory: 1024,
     gameDir: ctx.dirs.DATA_DIR,

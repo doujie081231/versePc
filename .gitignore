@@ -188,6 +188,7 @@ cdp-*.png
 test-cdp-*.js
 theseus_errors.txt
 verse框架替换项目/
+verse?*/
 xmcl-src/
 modrinth-code-temp/
 pnpm-lock.yaml

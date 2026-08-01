@@ -11,7 +11,6 @@ const ctx = require('../context');
 const versions = require('../versions');
 const { getJavaVersionRange, getJavaVersionInfo } = require('./java-version');
 const { detectSystemJava, detectBundledJava } = require('./java-detect');
-const { shouldSkipSystemScan } = require('../launch/java-scan-resolver');
 
 /* Classpath Wrapper JAR */
 
@@ -72,11 +71,6 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
 
   let candidates = [];
   const javaExeName = process.platform === 'win32' ? 'java.exe' : 'java';
-
-  if (settings.javaPath && fs.existsSync(settings.javaPath)) {
-    const info = getJavaVersionInfo(settings.javaPath);
-    candidates.push({ path: settings.javaPath, majorVersion: info.major, minorVersion: info.minor, is64Bit: true, isJdk: true, source: 'user_setting' });
-  }
 
   if (fs.existsSync(ctx.dirs.JAVA_DIR)) {
     try {
@@ -185,19 +179,12 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
   let systemJava = [];
   let bundledJava = [];
 
-  // [关键修复 2026-07-01] 只有 candidates 里有"精确匹配"（majorVersion == requiredVersion）
-  // 时才跳过系统扫描。旧逻辑只要 candidates 里有"满足要求"的 Java 就跳过，
-  // 导致 Forge 1.20.1（要 Java 17）在有 jdk-25 或 Minecraft runtime Java 21 时
-  // 错过 Program Files 里的 jdk-17（最优选择）。
-  if (shouldSkipSystemScan(candidates, requiredVersion, maxVersion)) {
-  } else {
-    systemJava = detectSystemJava();
-    bundledJava = detectBundledJava();
-    for (const j of [...bundledJava, ...systemJava]) {
-      const norm = j.path.toLowerCase().replace(/\\/g, '/');
-      if (!candidates.some((c) => c.path.toLowerCase().replace(/\\/g, '/') === norm)) {
-        candidates.push(j);
-      }
+  systemJava = detectSystemJava();
+  bundledJava = detectBundledJava();
+  for (const j of [...bundledJava, ...systemJava]) {
+    const norm = j.path.toLowerCase().replace(/\\/g, '/');
+    if (!candidates.some((c) => c.path.toLowerCase().replace(/\\/g, '/') === norm)) {
+      candidates.push(j);
     }
   }
 
@@ -307,10 +294,10 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
     return null;
   }
 
-  // 排序策略：1) 主版本距离要求最近 2) 启动器自带 Java 优先 3) 64 位优先 4) 用户设置优先 5) 范围内最高小版本号
+  // 排序策略：1) 主版本距离要求最近 2) 启动器自带 Java 优先 3) 64 位优先 4) 范围内最高小版本号
   suitable.sort((a, b) => {
-    const aDist = Math.abs(a.majorVersion - requiredVersion) - (a.source === 'user_setting' ? 1 : 0);
-    const bDist = Math.abs(b.majorVersion - requiredVersion) - (b.source === 'user_setting' ? 1 : 0);
+    const aDist = Math.abs(a.majorVersion - requiredVersion);
+    const bDist = Math.abs(b.majorVersion - requiredVersion);
     if (aDist !== bDist) return aDist - bDist;
 
     const aInLauncher = (a.path || '').toLowerCase().includes(ctx.dirs.DATA_DIR.toLowerCase()) ? 0 : 1;
@@ -318,8 +305,6 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
     if (aInLauncher !== bInLauncher) return aInLauncher - bInLauncher;
 
     if (a.is64Bit !== b.is64Bit) return a.is64Bit ? -1 : 1;
-    if (a.source === 'user_setting' && b.source !== 'user_setting') return -1;
-    if (b.source === 'user_setting' && a.source !== 'user_setting') return 1;
     // 同主版本优先选较高小版本（如 Java 8u362 > 8u51）
     if (a.majorVersion === b.majorVersion) {
       return (b.minorVersion || 0) - (a.minorVersion || 0);

@@ -152,6 +152,17 @@ async function saveLaunchSettings() {
 
   try {
     await window.electronAPI.store.set('versepc_launch_settings', JSON.stringify(settings));
+
+    // 同步保存分辨率/全屏到后端 settings.json，确保后端 loadSettingsCached() 能正确读取
+    try {
+      const backendSettings = await API.getSettings();
+      await API.saveSettings({
+        ...backendSettings,
+        resolution: windowSize && windowSize !== 'default' && windowSize !== 'custom' ? windowSize : (windowSize === 'default' ? '854x480' : backendSettings.resolution),
+        fullscreen: !!settings.fullscreen
+      });
+    } catch (_) { /* 同步失败不影响主流程 */ }
+
     showToast('启动设置已保存', 'success');
     
     // 应用窗口大小到启动器窗口

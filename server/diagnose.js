@@ -146,7 +146,7 @@ function diagnoseVersion(versionId) {
             if (vj.javaVersion) {
                 const requiredVer = vj.javaVersion.majorVersion;
                 const settings = versions.loadSettingsCached();
-                let javaPath = settings.javaPath;
+                let javaPath = '';
                 if (!javaPath) {
                     const allJava = [...detectBundledJava(), ...detectSystemJava()];
                     if (allJava.length > 0) javaPath = (allJava.find(j => j.majorVersion >= 17) || allJava[0]).path;

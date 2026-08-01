@@ -77,14 +77,6 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
     if (gameDirBasename.includes('!') || gameDirBasename.includes(';')) {
       return { success: false, error: `游戏路径中不可包含 ! 或 ;（${actualGameDir}）` };
     }
-    const javaPathToCheck = settings.javaPath || '';
-    if (javaPathToCheck) {
-      const javaDir = path.dirname(javaPathToCheck);
-      if (javaDir.includes('!') || javaDir.includes(';')) {
-        return { success: false, error: `Java路径中不可包含 ! 或 ;（${javaPathToCheck}）` };
-      }
-    }
-
     const versionJson = versions.resolveVersionJson(cleanVersionId, externalVersionDir);
     if (!versionJson) {
       return { success: false, error: `找不到版本 ${versionId} 的JSON文件`, details: { versionId, externalVersionDir } };

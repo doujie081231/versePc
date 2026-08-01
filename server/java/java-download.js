@@ -12,21 +12,8 @@ const ctx = require('../context');
 const utils = require('../utils');
 const http = require('../http-client');
 const versions = require('../versions');
-const { getJavaMajorVersion } = require('./java-version');
 const { detectSystemJava, detectBundledJava } = require('./java-detect');
 const { configureJavaEnv } = require('./java-runtime');
-
-/* 本地 saveSettings - 与 server.js 中行为一致 */
-
-/**
- * 保存全局设置到磁盘并刷新缓存
- * @param {object} settings - 设置对象
- */
-function saveSettings(settings) {
-  ctx.caches._settingsCache = settings;
-  ctx.caches._settingsCacheTime = Date.now();
-  utils.safeWriteFileSync(ctx.dirs.SETTINGS_FILE, JSON.stringify(settings, null, 2));
-}
 
 /* Temurin 镜像 URL */
 
@@ -449,27 +436,6 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
     }
 
     updateStatus('completed', 100, `Temurin JDK ${majorVersion} 安装成功！环境变量已配置。`);
-
-    // 自动更新全局 javaPath：当前未设置或新版本更高时覆盖
-    try {
-      const settings = versions.loadSettingsCached();
-      const javaExeWin = path.join(targetPath, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
-      let updatePath = false;
-      if (!settings.javaPath || !fs.existsSync(settings.javaPath)) {
-        updatePath = true;
-      } else {
-        const currentMajor = getJavaMajorVersion(settings.javaPath);
-        if (majorVersion > currentMajor && currentMajor > 0) {
-          updatePath = true;
-        }
-      }
-      if (updatePath) {
-        settings.javaPath = javaExeWin;
-        saveSettings(settings);
-      }
-    } catch (setErr) {
-      console.warn('[Java] 自动配置javaPath失败:', setErr.message);
-    }
 
   } catch (e) {
     console.error('[Java] 下载失败:', e.message);

@@ -123,10 +123,6 @@ function pollJavaInstallProgress(sessionId, requiredVersion) {
                     if (statJava && status.result.majorVersion) {
                         statJava.textContent = status.result.majorVersion;
                     }
-                    const javaPathInput = document.getElementById('setting-java-path');
-                    if (javaPathInput && status.result.path) {
-                        javaPathInput.value = status.result.path;
-                    }
                 }
 
                 showToast('Java 安装成功！环境变量已自动配置', 'success');

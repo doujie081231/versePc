@@ -907,13 +907,6 @@ function collectJavaCandidates() {
     const norm = String(p).toLowerCase().replace(/\//g, '/');
     if (!paths.some((x) => x.toLowerCase().replace(/\//g, '/') === norm) && fs.existsSync(p)) paths.push(p);
   };
-  try {
-    const settingsPath = path.join(DATA_DIR, 'settings.json');
-    if (fs.existsSync(settingsPath)) {
-      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      if (settings.javaPath) push(settings.javaPath);
-    }
-  } catch (_) {}
   // bundled java dir（.versepc/java/<ver>/bin/java）
   const bundledDirs = [path.join(DATA_DIR, 'java')];
   try {

@@ -260,19 +260,4 @@ function useDefaultImage(type) {
     }
 }
 
-function browseJavaPath() {
-    if (window.electronAPI && window.electronAPI.showOpenDialog) {
-        window.electronAPI.showOpenDialog({
-            properties: ['openFile'],
-            filters: [{ name: 'Java 可执行文件', extensions: ['exe', ''] }]
-        }).then(result => {
-            if (!result.canceled && result.filePaths.length > 0) {
-                const path = result.filePaths[0];
-                const input = document.getElementById('setting-java-path');
-                if (input) input.value = path;
-            }
-        }).catch(() => {});
-    } else {
-        showToast('请手动输入 Java 路径', 'info');
-    }
-}
+

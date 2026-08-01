@@ -1092,8 +1092,6 @@ async function detectJava() {
     const result = await API.detectJava();
     if (result.javaList && result.javaList.length > 0) {
       const best = result.javaList.find(j => j.majorVersion >= 17) || result.javaList[0];
-      const javaPathInput = document.getElementById('setting-java-path');
-      if (javaPathInput) javaPathInput.value = best.path;
       if (hint) hint.textContent = `找到 Java ${best.version} (${best.is64Bit ? '64位' : '32位'})`;
       const statJava = document.getElementById('stat-java');
       if (statJava) statJava.textContent = best.majorVersion;

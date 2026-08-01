@@ -100,10 +100,7 @@ const PageSettingsLaunch = {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
                     自动搜索
                   </button>
-                  <button class="btn btn-secondary btn-sm" onclick="browseJavaPath()" title="手动导入">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    手动导入
-                  </button>
+                  
                 </div>
               </div>
             </div>

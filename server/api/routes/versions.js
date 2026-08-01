@@ -382,7 +382,7 @@ module.exports = {
         // 版本设置覆盖全局设置
         if (verSettings.memoryMode === 'custom') maxMem = verSettings.memoryValue || maxMem;
         const minMem = Math.min(1024, maxMem);
-        const javaPath = verSettings.javaPath === 'global' ? (globalSettings.javaPath || 'java') : verSettings.javaPath;
+        const javaPath = verSettings.javaPath === 'global' ? 'java' : verSettings.javaPath;
         let jvmArgs = verSettings.jvmArgs || globalSettings.javaArgs || '';
         if (!jvmArgs.includes('preferIPv4Stack') && !jvmArgs.includes('preferIPv6Stack')) {
           jvmArgs += ' -Djava.net.preferIPv4Stack=true -Djava.net.preferIPv4Addresses=true';

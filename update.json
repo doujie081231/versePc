@@ -1,13 +1,13 @@
 {
-  "version": "1.3.1",
-  "releaseName": "v1.3.1",
-  "releaseDate": "2026-07-31",
-  "releaseNotes": "优化:\n- Java 下载源精简为仅保留中科大 USTC 源\n- 版本列表显示所有继承基础版本\n- 开服页面 UI 优化\n- 致谢页新增 XMCL 致谢卡片",
+  "version": "1.3.11",
+  "releaseName": "v1.3.11",
+  "releaseDate": "2026-08-01",
+  "releaseNotes": "修复:\n- 移除全局 Java 路径功能，改用纯自动检测\n- 修复高版本实例窗口化/全屏参数不生效问题\n- 修复版本级全屏设置 false 不生效的 Bug\n- 修复游戏窗口大小设置未写入后端的问题\n- 清理残留的全局 Java 路径引用\n- 移除废弃的 java-scan-resolver 模块",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.1/VersePC-Setup-1.3.1.exe",
-      "size": 146998163,
-      "sha256": "1b0b586c0c37614e9efa885ad6a72a738f4634b65b279a62e33bcd743f455eb9"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.11/VersePC-Setup-1.3.11.exe",
+      "size": 146699955,
+      "sha256": "1aa12f4e3cb80b21aafad5675ead2965d65e6d4995dad1ef7f860bcc69b3229f"
     }
   }
 }

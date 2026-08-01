@@ -3,7 +3,6 @@ async function loadSettings() {
         const settings = await API.getSettings();
         const sv = (id, fallback) => { const el = document.getElementById(id); if (el) return el; return { value: fallback, checked: !!fallback, textContent: String(fallback) }; };
 
-        sv('setting-java-path').value = settings.javaPath || '';
         sv('setting-max-memory').value = settings.maxMemory || 4096;
         sv('setting-min-memory').value = settings.minMemory || 1024;
         sv('setting-version-isolation').checked = settings.versionIsolation !== false;
@@ -95,7 +94,6 @@ function updateSpeedLimitLabel(value) {
 async function saveCurrentSettings() {
     const g = (id) => document.getElementById(id);
     const settings = {
-        javaPath: g('setting-java-path')?.value || '',
         maxMemory: parseInt(g('setting-max-memory')?.value || '2048', 10),
         minMemory: parseInt(g('setting-min-memory')?.value || '256', 10),
         versionIsolation: g('setting-version-isolation')?.checked || false,
