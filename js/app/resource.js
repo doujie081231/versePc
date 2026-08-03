@@ -624,7 +624,7 @@ async function openResourceDetail(projectId, type, source) {
 
       let tabsHtml = '<button class="md-vtab active" data-ver="" onclick="switchMdVersionTab(\'\')">全部</button>';
       [...gameVersions].sort().reverse().forEach(gv => {
-        tabsHtml += `<button class="md-vtab" data-ver="${escapeHtml(gv)}" onclick="switchMdVersionTab('${escapeOnclick(gv)}')">${escapeHtml(gv)}</button>`;
+        tabsHtml += `<button class="md-vtab" data-ver="${escapeHtml(gv)}" onclick="switchMdVersionTab('${escapeOnclick(gv)}', 'exact')">${escapeHtml(gv)}</button>`;
       });
       if (tabsContainer) tabsContainer.innerHTML = tabsHtml;
       

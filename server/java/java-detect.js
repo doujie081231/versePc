@@ -240,18 +240,34 @@ function detectSystemJava() {
       }
     }
 
+    const documents = process.env['USERPROFILE'] ? path.join(process.env['USERPROFILE'], 'Documents') : '';
     const additionalPaths = [
       'C:\\Java', 'D:\\Java', 'E:\\Java', 'F:\\Java',
       path.join(userProfile, 'Java'),
       path.join(userProfile, '.jdks'),
-      path.join(localAppData, 'Programs'),
       path.join(userProfile, '.sdkman', 'candidates', 'java'),
       path.join(userProfile, 'scoop', 'apps', 'openjdk'),
+      path.join(localAppData, 'Programs'),
       'C:\\ProgramData\\Oracle\\Java',
-      path.join(appData, '.hmcl', 'runtime'),
-      path.join(localAppData, 'BakaXL', 'JavaRuntime'),
+      // 各主流启动器自带 Java 运行时目录
       path.join(appData, '.minecraft', 'runtime'),
+      path.join(appData, '.hmcl', 'runtime'),
+      path.join(appData, '.hmcl', 'java'),
+      path.join(appData, 'ATLauncher', 'runtimes', 'minecraft'),
+      path.join(appData, 'ModrinthApp', 'meta', 'java_versions'),
+      path.join(appData, 'PrismLauncher', 'java'),
+      path.join(appData, 'curseforge', 'minecraft', 'Install', 'runtime'),
+      path.join(localAppData, 'BakaXL', 'JavaRuntime'),
+      path.join(localAppData, '.ftba', 'bin', 'runtime'),
+      path.join(localAppData, 'Packages', 'Microsoft.4297127D64EC6_8wekyb3d8bbwe', 'LocalCache', 'Local', 'runtime'),
+      path.join(programFilesX86, 'Minecraft Launcher', 'runtime'),
+      path.join(programFilesX86, 'Minecraft', 'runtime'),
+      path.join(programFiles, 'Minecraft Launcher', 'runtime'),
+      path.join(programFiles, 'Minecraft', 'runtime'),
     ];
+    if (documents) {
+      additionalPaths.push(path.join(documents, 'Curse', 'Minecraft', 'Install', 'runtime'));
+    }
 
     for (const searchPath of additionalPaths) {
       if (fs.existsSync(searchPath)) {

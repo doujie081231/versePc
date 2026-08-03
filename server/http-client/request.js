@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file server/http-client/request.js - 基础 HTTP 请求
  * @description GET/POST/PUT 请求、重定向、429 限流、gzip/br/deflate 解压、镜像回退、TTL 缓存、竞速请求。
  *   通过 ctx (../context) 访问共享状态，依赖 ./mirror 的镜像熔断逻辑。
@@ -285,8 +285,8 @@ async function fetchJSON(urlStr, retriesOrHeaders = 3, timeoutMs) {
     } catch (e) {
       lastErr = e;
       const status = e.httpStatus;
-      // 403/404 直接抛出不重试（资源不存在或禁止访问，重试无效）
-      if (status === 403 || status === 404) {
+      // 镜像返回 403/404 时不抛出，继续尝试官方 API；只有官方也返回才抛出
+      if ((status === 403 || status === 404) && !step.isMirror) {
         throw e;
       }
       // BMCLAPI 的 403/429 不禁用镜像（高频率请求会返回，属正常现象）

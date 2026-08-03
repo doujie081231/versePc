@@ -752,7 +752,8 @@ function showLaunchError(msg, details = null) {
   }
 
   if (errorMsg) {
-    errorMsg.innerHTML = (msg || '未知错误').replace(/\n/g, '<br>');
+    // 用 textContent 避免错误消息中的 HTML 内容被当作网页代码渲染
+    errorMsg.textContent = fullMsg || '未知错误';
     errorMsg.title = fullMsg;
   }
 

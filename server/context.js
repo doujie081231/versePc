@@ -109,7 +109,7 @@ const ctx = {
     MODRINTH_API_MIRROR: 'https://mod.mcimirror.top/modrinth/v2',
     CURSEFORGE_API: 'https://api.curseforge.com/v1',
     CURSEFORGE_API_MIRROR: 'https://mod.mcimirror.top/curseforge/v1',
-    JAVA_RUNTIME_URL: 'https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json',
+    JAVA_RUNTIME_URL: 'https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json',
     FABRIC_META_URL: 'https://meta.fabricmc.net/v2',
     FORGE_MAVEN_URL: 'https://maven.minecraftforge.net/net/minecraftforge/forge',
     NEOFORGE_API_URL: 'https://maven.neoforged.net/api/maven',
@@ -152,6 +152,7 @@ const ctx = {
     MCIM_MIRROR: {},
     JAVA_DOWNLOAD_MIRRORS: [
       { name: 'BMCLAPI', urlMap: {
+        'https://piston-meta.mojang.com/': 'https://bmclapi2.bangbang93.com/',
         'https://launchermeta.mojang.com/': 'https://bmclapi2.bangbang93.com/',
         'https://piston-data.mojang.com/': 'https://bmclapi2.bangbang93.com/'
       }},

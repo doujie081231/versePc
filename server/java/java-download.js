@@ -157,6 +157,23 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
 
   let lastPct = 10;
   try {
+    // 优先使用 Mojang 官方 Java 运行时源，失败时回退到下方 Temurin 逻辑
+    const mojangComponentMap = { 8: 'jre-legacy', 17: 'java-runtime-beta', 21: 'java-runtime-delta', 25: 'java-runtime-epsilon' };
+    const mojangComponent = mojangComponentMap[majorVersion];
+    if (mojangComponent) {
+      try {
+        updateStatus('fetching', 5, '正在获取Mojang官方Java运行时信息...');
+        const mjResult = await downloadJavaRuntime(mojangComponent, (p) => {
+          const pct = Math.min(90, 10 + Math.round((p.progress || 0) * 0.8));
+          updateStatus('downloading', pct, `正在下载Java ${majorVersion}... ${p.current}/${p.total}`, p.speed, p.downloadedBytes, p.totalBytes);
+        });
+        updateStatus('completed', 100, `Java ${majorVersion} 安装成功！`);
+        return;
+      } catch (e) {
+        console.warn(`[Java] Mojang官方源下载失败，回退到Temurin: ${e.message}`);
+      }
+    }
+
     updateStatus('fetching', 5, '正在获取JDK下载信息...');
 
     // 平台与架构映射：Mojang 风格 platformKey → Adoptium 风格 arch/osName

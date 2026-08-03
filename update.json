@@ -1,13 +1,13 @@
 {
-  "version": "1.3.11",
-  "releaseName": "v1.3.11",
-  "releaseDate": "2026-08-01",
-  "releaseNotes": "修复:\n- 移除全局 Java 路径功能，改用纯自动检测\n- 修复高版本实例窗口化/全屏参数不生效问题\n- 修复版本级全屏设置 false 不生效的 Bug\n- 修复游戏窗口大小设置未写入后端的问题\n- 清理残留的全局 Java 路径引用\n- 移除废弃的 java-scan-resolver 模块",
+  "version": "1.3.12",
+  "releaseName": "v1.3.12",
+  "releaseDate": "2026-08-03",
+  "releaseNotes": "修复:\n- 补全 Java 扫描范围，支持自动识别 HMCL、Prism、Modrinth、ATLauncher、CurseForge、FTB 等启动器自带的 Java\n- Java 检测与下载源统一为 PCL 同款（Mojang 官方 + BMCLAPI 镜像）\n- 修复 Forge 高版本安装时 Java 版本选择错误导致的 Processor execution failed\n- 修复启动失败错误提示显示 HTML 代码的问题\n- 修复资源详情页版本分类加载不出的问题",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.11/VersePC-Setup-1.3.11.exe",
-      "size": 146699955,
-      "sha256": "1aa12f4e3cb80b21aafad5675ead2965d65e6d4995dad1ef7f860bcc69b3229f"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.12/VersePC-Setup-1.3.12.exe",
+      "size": 146702081,
+      "sha256": "be75e1b6aa6de226193522c13009154f80ddbbad3acac19177407a909b3cf774"
     }
   }
 }

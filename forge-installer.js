@@ -83,14 +83,20 @@ send({ type: 'progress', percent: 0.3, message: 'Files verified, running process
 
 log(`\n=== Step 2: Run processors ===`);
 
-let javaPath = 'java';
-try {
-    const javaHome = process.env.JAVA_HOME;
-    if (javaHome) {
-        const candidate = path.join(javaHome, 'bin', 'java.exe');
-        if (fs.existsSync(candidate)) javaPath = candidate;
-    }
-} catch (_) {}
+// 优先使用启动器按游戏版本选定的 Java 路径（--javapath），
+// 避免回退到 PATH 里的旧版 Java（如 Java 8）导致高版本 Forge processor 失败。
+const JAVA_PATH = params.javapath || '';
+let javaPath = JAVA_PATH;
+if (!javaPath || javaPath === 'java' || !fs.existsSync(javaPath)) {
+    javaPath = 'java';
+    try {
+        const javaHome = process.env.JAVA_HOME;
+        if (javaHome) {
+            const candidate = path.join(javaHome, 'bin', 'java.exe');
+            if (fs.existsSync(candidate)) javaPath = candidate;
+        }
+    } catch (_) {}
+}
 log(`Java: ${javaPath} exists=${fs.existsSync(javaPath)}`);
 
 function resolveMavenPath(name) {

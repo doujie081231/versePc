@@ -681,6 +681,14 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
             nodeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
         }
     }
+    // 按游戏版本选择合适的 Java 运行 processor（如 1.21.1 → Java 21），
+    // 避免 forge-installer.js 回退到 PATH 里的旧版 Java 导致 processor 失败。
+    let forgeJavaPath = '';
+    try {
+        forgeJavaPath = java.selectJavaForVersion(gameVersion, {}) || '';
+    } catch (_) {}
+    if (forgeJavaPath && !fs.existsSync(forgeJavaPath)) forgeJavaPath = '';
+
     const args = [installerScriptDst,
         '--root', ctx.dirs.DATA_DIR,
         '--libs', ctx.dirs.LIBRARIES_DIR,
@@ -690,6 +698,9 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         '--config', configPath,
         '--appdir', path.resolve(SERVER_DIR)
     ];
+    if (forgeJavaPath) {
+        args.push('--javapath', forgeJavaPath);
+    }
 
     return new Promise((resolve) => {
         const proc = spawn(nodeExe, args, {
