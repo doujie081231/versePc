@@ -1,6 +1,6 @@
 {
   "name": "versepc",
-  "version": "1.3.12",
+  "version": "1.3.13",
   "description": "VersePC - Minecraft Launcher",
   "author": {
     "name": "豆杰",
@@ -108,7 +108,9 @@
       "node_modules/inherits/**/*",
       "node_modules/readable-stream/**/*",
       "node_modules/base64-js/**/*",
-      "node_modules/ieee754/**/*"
+      "node_modules/ieee754/**/*",
+      "node_modules/@xmcl/file-transfer/**/*",
+      "node_modules/@xmcl/task/**/*"
     ],
     "publish": {
       "provider": "github",

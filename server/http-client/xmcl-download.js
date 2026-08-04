@@ -3,7 +3,8 @@
  * 基于 @xmcl/file-transfer，提供高性能分块下载、多镜像回退、测速换源
  */
 
-const { download, DownloadController, ManagedAbortError } = require('@xmcl/file-transfer');
+// 显式引用 dist 产物，避免 npm 包 main 指向 TS 源码导致加载失败
+const { download, DownloadController, ManagedAbortError } = require('@xmcl/file-transfer/dist/index.js');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -130,7 +131,7 @@ async function xmclDownload(urls, destPath, opts = {}) {
   let lastBytes = 0;
   let progressTracker = null;
   try {
-    const { ProgressTrackerSingle } = require('@xmcl/file-transfer');
+    const { ProgressTrackerSingle } = require('@xmcl/file-transfer/dist/index.js');
     progressTracker = new ProgressTrackerSingle((accessor) => {
       // accessor: { url, total, progress }
     });
