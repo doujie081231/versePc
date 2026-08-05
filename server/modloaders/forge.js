@@ -681,13 +681,56 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
             nodeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
         }
     }
-    // 按游戏版本选择合适的 Java 运行 processor（如 1.21.1 → Java 21），
-    // 避免 forge-installer.js 回退到 PATH 里的旧版 Java 导致 processor 失败。
+    // 按游戏版本选择合适的 Java 运行 processor（如 1.20.1 → Java 17、1.21.1 → Java 21）。
+    // 找不到匹配范围的 Java 时不能留空，否则 forge-installer.js 会回退到 PATH 里的旧版 Java
+    // （如 Java 8），导致高版本 Forge 处理器直接崩溃。
     let forgeJavaPath = '';
     try {
         forgeJavaPath = java.selectJavaForVersion(gameVersion, {}) || '';
     } catch (_) {}
     if (forgeJavaPath && !fs.existsSync(forgeJavaPath)) forgeJavaPath = '';
+
+    if (!forgeJavaPath) {
+        // 范围内没有可用的 Java。不能盲目使用"系统里最高版本的 Java"——若最高版本超出了
+        // 该 MC 版本 / Forge 允许的范围，处理器仍会崩溃。这里参照主流启动器的做法：
+        // 自动下载一个匹配该游戏版本的官方 Java 运行时。
+        let requiredMajor = 0;
+        try {
+            requiredMajor = java.getRequiredJavaVersion(gameVersion);
+        } catch (_) {}
+        if (!requiredMajor) {
+            const mcMajor = parseInt(gameVersion.split('.')[0], 10);
+            const mcMinor = parseInt(gameVersion.split('.')[1], 10) || 0;
+            const mcPatch = parseInt((gameVersion.split('.')[2] || '0').split('-')[0], 10) || 0;
+            if (mcMajor >= 2 || (mcMajor === 1 && (mcMinor > 20 || (mcMinor === 20 && mcPatch >= 5)))) requiredMajor = 21;
+            else if (mcMajor === 1 && mcMinor >= 18) requiredMajor = 17;
+            else if (mcMajor === 1 && mcMinor === 17) requiredMajor = 16;
+            else requiredMajor = 8;
+        }
+        const majorToComponent = { 8: 'jre-legacy', 16: 'java-runtime-beta', 17: 'java-runtime-beta', 21: 'java-runtime-delta', 25: 'java-runtime-epsilon' };
+        const component = majorToComponent[requiredMajor];
+        if (component) {
+            try {
+                if (onProgress) onProgress(0.3, `未找到合适的 Java，正在自动下载 Java ${requiredMajor}...`);
+                const dl = await java.downloadJavaRuntime(component, (p) => {
+                    if (onProgress) {
+                        const pct = 0.3 + Math.min(p.progress || 0, 100) / 100 * 0.1;
+                        const label = p.current && p.total
+                            ? `下载 Java ${requiredMajor}... ${p.current}/${p.total}`
+                            : `下载 Java ${requiredMajor}... ${p.progress || 0}%`;
+                        onProgress(pct, label);
+                    }
+                });
+                if (dl && dl.path && fs.existsSync(dl.path)) {
+                    forgeJavaPath = dl.path;
+                    if (onProgress) onProgress(0.4, `Java ${requiredMajor} 已就绪`);
+                }
+            } catch (dlErr) {
+                console.warn(`[Forge] 自动下载 Java ${requiredMajor} 失败: ${dlErr.message}`);
+            }
+        }
+        if (forgeJavaPath && !fs.existsSync(forgeJavaPath)) forgeJavaPath = '';
+    }
 
     const args = [installerScriptDst,
         '--root', ctx.dirs.DATA_DIR,

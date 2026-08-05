@@ -1,13 +1,13 @@
 {
-  "version": "1.3.13",
-  "releaseName": "v1.3.13",
-  "releaseDate": "2026-08-04",
-  "releaseNotes": "修复:\n- 修复整合包和 Mod 下载失败的严重问题（@xmcl/file-transfer 下载模块损坏导致）\n- 修复下载模块缺失导致整合包安装中断的问题\n- 修复 Mod 批量下载全部失败的问题",
+  "version": "1.3.14",
+  "releaseName": "v1.3.14",
+  "releaseDate": "2026-08-05",
+  "releaseNotes": "修复:\n- 修复微软账号登录时授权成功后软件仍提示\"已过期\"的问题，授权码过期时会自动重新获取\n- 修复 Forge 安装报\"处理器执行失败\"的问题，安装时缺少合适 Java 会自动下载匹配版本\n- 优化 Forge 安装失败的提示，展示具体出错环节，便于排查",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.13/VersePC-Setup-1.3.13.exe",
-      "size": 146997740,
-      "sha256": "9694b4db25c11af99617ae461bbd9cab11f9d44927bbbc6ffc360a94ff38f21e"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.14/VersePC-Setup-1.3.14.exe",
+      "size": 146998912,
+      "sha256": "592de38d2f30792290d65a10ae3ac28107c0e74ce61101d02a4ba0650e65d4c6"
     }
   }
 }

@@ -309,9 +309,9 @@ async function runProcessor(procInfo, index) {
         log(`[P${index+1}] 处理器JAR不存在，下载: ${jar}`);
         send({ type: 'progress', percent: 0.4 + (index / processorsInfo.length) * 0.5, message: `下载处理器 ${index + 1}...` });
         const ok = await downloadMavenArtifact(jar);
-        if (!ok) { log(`[P${index+1}] ERROR: 下载处理器JAR失败: ${jar}`); return false; }
+        if (!ok) { log(`[P${index+1}] ERROR: 下载处理器JAR失败: ${jar}`); return `[处理器 ${index + 1}] JAR 下载失败: ${jar}`; }
         jarPath = resolveMavenPath(jar);
-        if (!jarPath || !fs.existsSync(jarPath)) { log(`[P${index+1}] ERROR: 下载后JAR仍不存在: ${jarPath}`); return false; }
+        if (!jarPath || !fs.existsSync(jarPath)) { log(`[P${index+1}] ERROR: 下载后JAR仍不存在: ${jarPath}`); return `[处理器 ${index + 1}] JAR 下载后仍不存在: ${jarPath}`; }
     }
     log(`[P${index+1}] 处理器JAR: ${jarPath} (${fs.existsSync(jarPath) ? fs.statSync(jarPath).size : 'missing'} bytes)`);
 
@@ -354,7 +354,7 @@ async function runProcessor(procInfo, index) {
             } catch(e) { log(`Failed to read Main-Class (powershell): ${e.message}`); }
         }
     }
-    if (!resolvedMainClass) { log(`ERROR: No Main-Class for processor ${jar}`); return false; }
+    if (!resolvedMainClass) { log(`ERROR: No Main-Class for processor ${jar}`); return `[处理器 ${index + 1}] 无法确定主类: ${jar}`; }
 
     // Collect all missing maven artifacts to download them in parallel
     const pendingDownloads = new Set();
@@ -445,17 +445,18 @@ async function runProcessor(procInfo, index) {
             if (stderr) log(`[P${index+1}] stderr: ${stderr.substring(0, 1000)}`);
             if (code !== 0) {
                 log(`Processor FAILED with code ${code}`);
-                resolve(false);
+                const detail = stderr ? stderr.substring(0, 500) : (stdout ? stdout.substring(0, 500) : '');
+                resolve(`[处理器 ${index + 1}] 退出码 ${code}${detail ? '：' + detail.trim() : ''}`);
             } else {
                 log(`Processor completed successfully`);
-                resolve(true);
+                resolve(null);
             }
         });
 
         child.on('error', (err) => {
             clearInterval(heartbeatTimer);
             log(`ERROR: ${err.message}`);
-            resolve(false);
+            resolve(`[处理器 ${index + 1}] 启动失败: ${err.message}`);
         });
     });
 }
@@ -509,12 +510,14 @@ async function main() {
     }
 
     let allOk = true;
+    let failReason = '';
     for (let i = 0; i < processorsInfo.length; i++) {
         send({ type: 'progress', percent: 0.4 + (i / processorsInfo.length) * 0.5, message: `Running processor ${i + 1}/${processorsInfo.length}...` });
-        const ok = await runProcessor(processorsInfo[i], i);
-        if (!ok) {
-            log(`\nProcessor ${i + 1} failed, stopping.`);
+        const result = await runProcessor(processorsInfo[i], i);
+        if (typeof result === 'string') {
+            log(`\nProcessor ${i + 1} failed: ${result}`);
             allOk = false;
+            failReason = result;
             break;
         }
     }
@@ -625,7 +628,7 @@ async function main() {
         log(`\n=== SUCCESS ===`);
         process.exit(0);
     } else {
-        send({ type: 'done', success: false, error: 'Processor execution failed' });
+        send({ type: 'done', success: false, error: failReason || 'Processor execution failed' });
         log(`\n=== FAILED ===`);
         process.exit(1);
     }

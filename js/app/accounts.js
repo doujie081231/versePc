@@ -1157,8 +1157,11 @@ async function startMsAuth() {
           } else if (pollResult.pending) {
             document.getElementById('msauth-status-text').textContent = '等待验证...';
           } else {
-            const isCodeUsed = pollResult.errorCode === 'invalid_grant' && pollResult.error && pollResult.error.includes('device_code');
-            if (isCodeUsed && _msAuthRetryCount < _msAuthMaxRetry) {
+            // 设备码过期（expired_token）或已被使用（invalid_grant + device_code）时，
+            // 自动获取新设备码并继续轮询，避免用户授权完成后因设备码过期而卡死在"已过期"。
+            const isExpiredCode = pollResult.errorCode === 'expired_token' ||
+              (pollResult.errorCode === 'invalid_grant' && pollResult.error && pollResult.error.includes('device_code'));
+            if (isExpiredCode && _msAuthRetryCount < _msAuthMaxRetry) {
               _msAuthRetryCount++;
               clearInterval(msAuthPollInterval);
               msAuthPollInterval = null;
@@ -1187,9 +1190,9 @@ async function startMsAuth() {
             else if (pollResult.needCreateProfile) errMsg = '❌ 未找到档案，请先在 Minecraft.net 创建角色名';
             else if (pollResult.isRateLimit) errMsg = `⏳ 请求过于频繁，请等待 ${pollResult.retryAfter || 5} 秒后重试`;
             else if (pollResult.xerr) errMsg = `❌ Xbox认证失败 (${pollResult.xerr})`;
-            else if (isCodeUsed) errMsg = '授权码已过期或已被使用，请点击重新登录';
+            else if (isExpiredCode) errMsg = '授权码已过期或已被使用，请点击重新登录';
             document.getElementById('msauth-status-text').textContent = errMsg;
-            if (pollResult.needPurchase || pollResult.needCreateProfile || pollResult.errorCode === 'invalid_grant') {
+            if (pollResult.needPurchase || pollResult.needCreateProfile || isExpiredCode || pollResult.errorCode === 'invalid_grant') {
               clearInterval(msAuthPollInterval);
               msAuthPollInterval = null;
             }
