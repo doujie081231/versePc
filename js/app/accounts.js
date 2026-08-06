@@ -1143,66 +1143,88 @@ async function startMsAuth() {
       if (msAuthPollInterval) clearInterval(msAuthPollInterval);
       let _msAuthRetryCount = 0;
       const _msAuthMaxRetry = 2;
-      const _msAuthStartPoll = async (deviceCode, userCode) => {
-        msAuthPollInterval = setInterval(async () => {
+      // 单飞轮询：上一次请求完成后再排下一次，避免并发陈旧轮询覆盖登录成功
+      let _msAuthSettled = false; // 已成功或已终止时，丢弃后续所有结果
+      const _msAuthPollMs = (result.interval || 5) * 1000;
+
+      const _msAuthScheduleNext = () => {
+        if (_msAuthSettled) return;
+        msAuthPollInterval = setTimeout(_msAuthPollOnce, _msAuthPollMs);
+      };
+
+      const _msAuthPollOnce = async () => {
+        if (_msAuthSettled) return;
+        let pollResult;
         try {
-          const pollResult = await API.pollMsAuth(deviceCode);
-          if (pollResult.success) {
-            clearInterval(msAuthPollInterval);
-            msAuthPollInterval = null;
-            document.getElementById('msauth-status-text').textContent = '登录成功！';
-            showToast(`欢迎，${pollResult.account.username}！`, 'success');
-            setTimeout(() => closeMsAuthModal(), 1500);
-            await loadAccounts();
-          } else if (pollResult.pending) {
-            document.getElementById('msauth-status-text').textContent = '等待验证...';
-          } else {
-            // 设备码过期（expired_token）或已被使用（invalid_grant + device_code）时，
-            // 自动获取新设备码并继续轮询，避免用户授权完成后因设备码过期而卡死在"已过期"。
-            const isExpiredCode = pollResult.errorCode === 'expired_token' ||
-              (pollResult.errorCode === 'invalid_grant' && pollResult.error && pollResult.error.includes('device_code'));
-            if (isExpiredCode && _msAuthRetryCount < _msAuthMaxRetry) {
-              _msAuthRetryCount++;
-              clearInterval(msAuthPollInterval);
-              msAuthPollInterval = null;
-              document.getElementById('msauth-status-text').textContent = '授权码已过期，正在重新获取...';
-              try {
-                const newResult = await API.getMsDeviceCode();
-                if (newResult.success) {
-                  const newVerifyUrl = newResult.verificationUriComplete || newResult.verificationUri;
-                  document.getElementById('msauth-url').href = newVerifyUrl;
-                  document.getElementById('msauth-url').textContent = newVerifyUrl;
-                  document.getElementById('msauth-code-text').textContent = newResult.userCode;
-                  document.getElementById('msauth-status-text').textContent = '新的授权码已获取，请重新登录...';
-                  try { await window.electronAPI?.clipboard?.writeText(newResult.userCode); } catch (e) {}
-                  try { await window.electronAPI?.openExternal?.(newVerifyUrl); } catch (e) {}
-                  _msAuthStartPoll(newResult.deviceCode, newResult.userCode);
-                  return;
-                }
-              } catch (retryErr) {
-                console.warn('[Auth] 重新获取设备码失败:', retryErr);
-              }
-              document.getElementById('msauth-status-text').textContent = '获取新授权码失败，请点击重新登录';
-              return;
-            }
-            let errMsg = pollResult.error || '验证失败';
-            if (pollResult.needPurchase) errMsg = '❌ 该账号未购买Minecraft，请先购买游戏';
-            else if (pollResult.needCreateProfile) errMsg = '❌ 未找到档案，请先在 Minecraft.net 创建角色名';
-            else if (pollResult.isRateLimit) errMsg = `⏳ 请求过于频繁，请等待 ${pollResult.retryAfter || 5} 秒后重试`;
-            else if (pollResult.xerr) errMsg = `❌ Xbox认证失败 (${pollResult.xerr})`;
-            else if (isExpiredCode) errMsg = '授权码已过期或已被使用，请点击重新登录';
-            document.getElementById('msauth-status-text').textContent = errMsg;
-            if (pollResult.needPurchase || pollResult.needCreateProfile || isExpiredCode || pollResult.errorCode === 'invalid_grant') {
-              clearInterval(msAuthPollInterval);
-              msAuthPollInterval = null;
-            }
-          }
+          pollResult = await API.pollMsAuth(result.deviceCode);
         } catch (e) {
           console.warn('[Auth] 微软登录轮询失败:', e);
+          _msAuthScheduleNext();
+          return;
         }
-      }, (result.interval || 5) * 1000);
+        if (_msAuthSettled) return; // 等待期间已成功/终止，丢弃陈旧结果
+
+        if (pollResult.success) {
+          _msAuthSettled = true;
+          if (msAuthPollInterval) { clearTimeout(msAuthPollInterval); msAuthPollInterval = null; }
+          document.getElementById('msauth-status-text').textContent = '登录成功！';
+          showToast(`欢迎，${pollResult.account.username}！`, 'success');
+          setTimeout(() => closeMsAuthModal(), 1500);
+          await loadAccounts();
+          return;
+        }
+        if (pollResult.pending) {
+          document.getElementById('msauth-status-text').textContent = '等待验证...';
+          _msAuthScheduleNext();
+          return;
+        }
+
+        // 设备码过期（expired_token）或已被使用（invalid_grant + device_code）时，
+        // 自动获取新设备码并继续轮询，避免用户授权完成后因设备码过期而卡死在"已过期"。
+        const isExpiredCode = pollResult.errorCode === 'expired_token' ||
+          (pollResult.errorCode === 'invalid_grant' && pollResult.error && pollResult.error.includes('device_code'));
+        if (isExpiredCode && _msAuthRetryCount < _msAuthMaxRetry) {
+          _msAuthRetryCount++;
+          document.getElementById('msauth-status-text').textContent = '授权码已过期，正在重新获取...';
+          try {
+            const newResult = await API.getMsDeviceCode();
+            if (newResult.success) {
+              const newVerifyUrl = newResult.verificationUriComplete || newResult.verificationUri;
+              document.getElementById('msauth-url').href = newVerifyUrl;
+              document.getElementById('msauth-url').textContent = newVerifyUrl;
+              document.getElementById('msauth-code-text').textContent = newResult.userCode;
+              document.getElementById('msauth-status-text').textContent = '新的授权码已获取，请重新登录...';
+              try { await window.electronAPI?.clipboard?.writeText(newResult.userCode); } catch (e) {}
+              try { await window.electronAPI?.openExternal?.(newVerifyUrl); } catch (e) {}
+              // 用新设备码继续轮询
+              result.deviceCode = newResult.deviceCode;
+              result.userCode = newResult.userCode;
+              _msAuthSettled = false;
+              _msAuthScheduleNext();
+              return;
+            }
+          } catch (retryErr) {
+            console.warn('[Auth] 重新获取设备码失败:', retryErr);
+          }
+          document.getElementById('msauth-status-text').textContent = '获取新授权码失败，请点击重新登录';
+          return;
+        }
+        let errMsg = pollResult.error || '验证失败';
+        if (pollResult.needPurchase) errMsg = '❌ 该账号未购买Minecraft，请先购买游戏';
+        else if (pollResult.needCreateProfile) errMsg = '❌ 未找到档案，请先在 Minecraft.net 创建角色名';
+        else if (pollResult.isRateLimit) errMsg = `⏳ 请求过于频繁，请等待 ${pollResult.retryAfter || 5} 秒后重试`;
+        else if (pollResult.xerr) errMsg = `❌ Xbox认证失败 (${pollResult.xerr})`;
+        else if (isExpiredCode) errMsg = '授权码已过期或已被使用，请点击重新登录';
+        document.getElementById('msauth-status-text').textContent = errMsg;
+        if (pollResult.needPurchase || pollResult.needCreateProfile || isExpiredCode || pollResult.errorCode === 'invalid_grant') {
+          _msAuthSettled = true;
+          if (msAuthPollInterval) { clearTimeout(msAuthPollInterval); msAuthPollInterval = null; }
+        } else {
+          _msAuthScheduleNext();
+        }
       };
-      _msAuthStartPoll(result.deviceCode, result.userCode);
+
+      _msAuthScheduleNext();
     } else {
       const errMsg = result.error || '获取设备码失败';
       document.getElementById('msauth-status-text').textContent = errMsg;
@@ -1215,7 +1237,7 @@ async function startMsAuth() {
 
 function closeMsAuthModal() {
   hideModal('msauth-modal');
-  if (msAuthPollInterval) { clearInterval(msAuthPollInterval); msAuthPollInterval = null; }
+  if (msAuthPollInterval) { clearTimeout(msAuthPollInterval); msAuthPollInterval = null; }
 }
 
 function closeOfflineModal() {
@@ -1229,7 +1251,7 @@ function copyMsCode() {
 }
 
 async function reopenMsAuthPage() {
-  if (msAuthPollInterval) { clearInterval(msAuthPollInterval); msAuthPollInterval = null; }
+  if (msAuthPollInterval) { clearTimeout(msAuthPollInterval); msAuthPollInterval = null; }
   startMsAuth();
 }
 
