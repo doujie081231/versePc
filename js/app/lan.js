@@ -381,8 +381,8 @@ let _redstoneRunning = false;
 let _redstoneServerIdx = 0;
 
 function updateRedstoneTitleCount(input) {
-    var c = input.value.length || 0;
-    var e = document.getElementById('redstone-title-count');
+    let c = input.value.length || 0;
+    let e = document.getElementById('redstone-title-count');
     if (!e) return;
     e.textContent = c + '/8';
     e.classList.remove('warn', 'full');

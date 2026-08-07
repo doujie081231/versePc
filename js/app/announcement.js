@@ -5,12 +5,12 @@ function getLaunchCount() {
     catch (e) { return 0; }
 }
 
-var _launchCounted = false;
+let _launchCounted = false;
 
 function incrementLaunchCount() {
     if (_launchCounted) return getLaunchCount();
     _launchCounted = true;
-    var c = getLaunchCount() + 1;
+    let c = getLaunchCount() + 1;
     try { localStorage.setItem('verse_launchCount', String(c)); } catch (e) {}
     return c;
 }
@@ -18,15 +18,15 @@ function incrementLaunchCount() {
 function isSupportMilestone(c) { return SUPPORT_MILESTONES.indexOf(c) !== -1; }
 
 function checkSupportMilestone() {
-    var c = getLaunchCount();
+    let c = getLaunchCount();
     showSupportModal(c);
 }
 
 function showSupportModal(count) {
     count = count || getLaunchCount();
     setTimeout(function() {
-        var countEl = document.getElementById('support-modal-count');
-        var modalEl = document.getElementById('support-modal');
+        let countEl = document.getElementById('support-modal-count');
+        let modalEl = document.getElementById('support-modal');
         if (countEl) countEl.textContent = count;
         if (modalEl) {
             modalEl.style.display = '';
@@ -48,7 +48,7 @@ function dismissSupportModal() {
     }
 }
 
-var ANNOUNCEMENT_CONTENT = {
+let ANNOUNCEMENT_CONTENT = {
     version: '1.0.1',
     title: 'VersePC v1.0.1 预览版公告',
     body: `
@@ -89,40 +89,41 @@ var ANNOUNCEMENT_CONTENT = {
 };
 
 async function showAnnouncementModal(forceShow) {
+    let currentVersion;
     try {
-        var versionResult = await window.electronAPI.updater.getVersion();
-        var currentVersion = versionResult ? versionResult.version : '1.0.0';
+        let versionResult = await window.electronAPI.updater.getVersion();
+        currentVersion = versionResult ? versionResult.version : '1.0.0';
     } catch (e) {
-        var currentVersion = '1.0.0';
+        currentVersion = '1.0.0';
     }
 
     if (!forceShow) {
         try {
-            var dismissedVersion = localStorage.getItem('versepc_announcement_dismissed_version');
+            let dismissedVersion = localStorage.getItem('versepc_announcement_dismissed_version');
             if (dismissedVersion === currentVersion) return;
         } catch (e) {}
     }
 
-    var noticeMode = 'show-all';
+    let noticeMode = 'show-all';
     try {
-        var saved = await window.electronAPI.store.get('versepc_other_settings');
+        let saved = await window.electronAPI.store.get('versepc_other_settings');
         if (saved) {
-            var settings = JSON.parse(saved);
+            let settings = JSON.parse(saved);
             if (settings.launcherNoticeMode) noticeMode = settings.launcherNoticeMode;
         }
     } catch (e) {}
 
     if (!forceShow && noticeMode === 'hide') return;
 
-    var versionBadge = document.getElementById('announcement-version-badge');
-    var contentEl = document.getElementById('announcement-content');
-    var checkEl = document.getElementById('announcement-dismiss-check');
+    let versionBadge = document.getElementById('announcement-version-badge');
+    let contentEl = document.getElementById('announcement-content');
+    let checkEl = document.getElementById('announcement-dismiss-check');
 
     if (versionBadge) versionBadge.textContent = 'v' + currentVersion;
     if (contentEl) contentEl.innerHTML = ANNOUNCEMENT_CONTENT.body;
     if (checkEl) checkEl.checked = false;
 
-    var modal = document.getElementById('announcement-modal');
+    let modal = document.getElementById('announcement-modal');
     if (!modal) return;
 
     if (modal.parentElement !== document.body) {
@@ -136,11 +137,11 @@ async function showAnnouncementModal(forceShow) {
     });
 
     requestAnimationFrame(function () {
-        var closeBtn = modal.querySelector('.modal-close');
+        let closeBtn = modal.querySelector('.modal-close');
         if (closeBtn) closeBtn.focus();
     });
 
-    var onKeyDown = function (e) {
+    let onKeyDown = function (e) {
         if (e.key === 'Escape') {
             dismissAnnouncementModal();
         }
@@ -150,14 +151,14 @@ async function showAnnouncementModal(forceShow) {
 }
 
 function dismissAnnouncementModal() {
-    var modal = document.getElementById('announcement-modal');
+    let modal = document.getElementById('announcement-modal');
     if (!modal) return;
 
-    var checkEl = document.getElementById('announcement-dismiss-check');
+    let checkEl = document.getElementById('announcement-dismiss-check');
     if (checkEl && checkEl.checked) {
         try {
-            var versionBadge = document.getElementById('announcement-version-badge');
-            var version = versionBadge ? versionBadge.textContent : '';
+            let versionBadge = document.getElementById('announcement-version-badge');
+            let version = versionBadge ? versionBadge.textContent : '';
             if (version) localStorage.setItem('versepc_announcement_dismissed_version', version.replace(/^v/, ''));
         } catch (e) {}
     }
@@ -185,9 +186,9 @@ function announcementGotoUpdateSettings() {
         switchPage('settings-other');
     }
     setTimeout(function() {
-        var btnGroup = document.getElementById('updater-btn-group');
+        let btnGroup = document.getElementById('updater-btn-group');
         if (btnGroup) {
-            var card = btnGroup.closest('.card');
+            let card = btnGroup.closest('.card');
             if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     }, 300);

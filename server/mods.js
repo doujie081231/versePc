@@ -98,54 +98,54 @@ async function checkModUpdates(versionId) {
 // ============================================================================
 
 function parseModJar(jarPath) {
-    var cached = ctx.caches.MOD_META_CACHE.get(jarPath);
+    let cached = ctx.caches.MOD_META_CACHE.get(jarPath);
     if (cached) return cached;
     if (ctx.caches.MOD_META_CACHE.size > ctx.caches.MOD_META_CACHE_MAX) {
-        var keys = Array.from(ctx.caches.MOD_META_CACHE.keys());
-        for (var i = 0; i < 100; i++) ctx.caches.MOD_META_CACHE.delete(keys[i]);
+        let keys = Array.from(ctx.caches.MOD_META_CACHE.keys());
+        for (let i = 0; i < 100; i++) ctx.caches.MOD_META_CACHE.delete(keys[i]);
     }
 
-    var result = { icon: '', name: '', desc: '', version: '1.0', author: '', projectId: '' };
+    let result = { icon: '', name: '', desc: '', version: '1.0', author: '', projectId: '' };
     try {
-        var stat = fs.statSync(jarPath);
+        let stat = fs.statSync(jarPath);
         if (stat.size > 100 * 1024 * 1024) {
             ctx.caches.MOD_META_CACHE.set(jarPath, result);
             return result;
         }
-        var AdmZip = utils.getAdmZip();
-        var zip = new AdmZip(jarPath);
-        var entries = zip.getEntries();
-        var fabricModJson = null;
-        var modsToml = null;
-        var neoForgeModsToml = null;
-        for (var i = 0; i < entries.length; i++) {
-            var entry = entries[i];
+        let AdmZip = utils.getAdmZip();
+        let zip = new AdmZip(jarPath);
+        let entries = zip.getEntries();
+        let fabricModJson = null;
+        let modsToml = null;
+        let neoForgeModsToml = null;
+        for (let i = 0; i < entries.length; i++) {
+            let entry = entries[i];
             if (entry.isDirectory) continue;
-            var name = entry.entryName;
+            let name = entry.entryName;
             if (name === 'fabric.mod.json') fabricModJson = entry;
             else if (name === 'META-INF/neoforge.mods.toml') neoForgeModsToml = entry;
             else if (name === 'META-INF/mods.toml') modsToml = entry;
         }
 
-        var iconPath = null;
+        let iconPath = null;
 
         if (fabricModJson) {
             try {
-                var json = JSON.parse(fabricModJson.getData().toString('utf8'));
+                let json = JSON.parse(fabricModJson.getData().toString('utf8'));
                 result.name = json.name || '';
                 result.desc = json.description || '';
                 result.version = json.version || '1.0';
                 result.author = (json.authors || []).map(function (a) { return typeof a === 'string' ? a : a.name; }).join(', ') || '';
                 result.projectId = json.id || '';
-                var rawIcon = json.icon || '';
+                let rawIcon = json.icon || '';
                 if (rawIcon) {
                     if (typeof rawIcon === 'object') {
-                        var bestKey = null;
-                        var bestSize = 0;
-                        var iconKeys = Object.keys(rawIcon);
-                        for (var ki = 0; ki < iconKeys.length; ki++) {
-                            var k = iconKeys[ki];
-                            var size = parseInt(k) || 0;
+                        let bestKey = null;
+                        let bestSize = 0;
+                        let iconKeys = Object.keys(rawIcon);
+                        for (let ki = 0; ki < iconKeys.length; ki++) {
+                            let k = iconKeys[ki];
+                            let size = parseInt(k) || 0;
                             if (size <= 128 && size > bestSize) {
                                 bestSize = size;
                                 bestKey = k;
@@ -157,8 +157,8 @@ function parseModJar(jarPath) {
                     }
                 }
                 if (!iconPath && json.id) {
-                    for (var ei = 0; ei < entries.length; ei++) {
-                        var entryName = entries[ei].entryName;
+                    for (let ei = 0; ei < entries.length; ei++) {
+                        let entryName = entries[ei].entryName;
                         if (entryName === 'assets/' + json.id + '/icon.png') {
                             iconPath = entryName;
                             break;
@@ -168,25 +168,25 @@ function parseModJar(jarPath) {
             } catch (e) {}
         }
 
-        var parseTomlMod = function (tomlText) {
+        let parseTomlMod = function (tomlText) {
             if (!tomlText) return;
-            var nm = tomlText.match(/displayName\s*=\s*"([^"]+)"/);
+            let nm = tomlText.match(/displayName\s*=\s*"([^"]+)"/);
             if (nm && !result.name) result.name = nm[1];
-            var dm = tomlText.match(/description\s*=\s*"""([\s\S]*?)"""/);
+            let dm = tomlText.match(/description\s*=\s*"""([\s\S]*?)"""/);
             if (!dm) dm = tomlText.match(/description\s*=\s*"([^"]+)"/);
             if (dm && !result.desc) result.desc = dm[1].trim();
-            var vm = tomlText.match(/version\s*=\s*"([^"]+)"/);
+            let vm = tomlText.match(/version\s*=\s*"([^"]+)"/);
             if (vm && result.version === '1.0') result.version = vm[1];
-            var am = tomlText.match(/authors\s*=\s*\[([^\]]+)\]/);
+            let am = tomlText.match(/authors\s*=\s*\[([^\]]+)\]/);
             if (am && !result.author) {
                 result.author = am[1].split(',').map(function(s){ return s.trim().replace(/^"|"$/g, ''); }).join(', ');
             } else if (!result.author) {
-                var am2 = tomlText.match(/author\s*=\s*"([^"]+)"/);
+                let am2 = tomlText.match(/author\s*=\s*"([^"]+)"/);
                 if (am2) result.author = am2[1];
             }
-            var mm = tomlText.match(/modId\s*=\s*"([^"]+)"/);
+            let mm = tomlText.match(/modId\s*=\s*"([^"]+)"/);
             if (mm && !result.projectId) result.projectId = mm[1];
-            var lm = tomlText.match(/logoFile\s*=\s*"([^"]+)"/);
+            let lm = tomlText.match(/logoFile\s*=\s*"([^"]+)"/);
             if (lm && !iconPath) iconPath = lm[1];
         };
 
@@ -198,8 +198,8 @@ function parseModJar(jarPath) {
         }
 
         if (!iconPath) {
-            for (var ei2 = 0; ei2 < entries.length; ei2++) {
-                var en = entries[ei2].entryName;
+            for (let ei2 = 0; ei2 < entries.length; ei2++) {
+                let en = entries[ei2].entryName;
                 if (en === 'pack.png' || en === 'logo.png' || en === 'icon.png' || en.endsWith('/icon.png')) {
                     iconPath = en;
                     break;
@@ -209,9 +209,9 @@ function parseModJar(jarPath) {
 
         if (iconPath) {
             iconPath = iconPath.replace(/\\/g, '/');
-            var iconEntry = zip.getEntry(iconPath);
+            let iconEntry = zip.getEntry(iconPath);
             if (!iconEntry) {
-                for (var ei3 = 0; ei3 < entries.length; ei3++) {
+                for (let ei3 = 0; ei3 < entries.length; ei3++) {
                     if (entries[ei3].entryName.replace(/\\/g, '/') === iconPath) {
                         iconEntry = entries[ei3];
                         break;
@@ -219,9 +219,9 @@ function parseModJar(jarPath) {
                 }
             }
             if (iconEntry && !iconEntry.isDirectory) {
-                var data = iconEntry.getData();
-                var hash = crypto.createHash('md5').update(jarPath + '|' + iconPath).digest('hex');
-                var cacheFilePath = path.join(ctx.dirs.ICON_CACHE_DIR, hash + '.png');
+                let data = iconEntry.getData();
+                let hash = crypto.createHash('md5').update(jarPath + '|' + iconPath).digest('hex');
+                let cacheFilePath = path.join(ctx.dirs.ICON_CACHE_DIR, hash + '.png');
                 if (!fs.existsSync(cacheFilePath)) {
                     try { fs.mkdirSync(ctx.dirs.ICON_CACHE_DIR, { recursive: true }); } catch (_) {}
                     fs.writeFileSync(cacheFilePath, data);
@@ -243,7 +243,7 @@ function parseModJar(jarPath) {
 // ============================================================================
 
 function extractModIcon(jarPath) {
-    var parsed = parseModJar(jarPath);
+    let parsed = parseModJar(jarPath);
     return parsed.icon || '';
 }
 

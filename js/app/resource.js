@@ -152,7 +152,7 @@ async function importModpackFromFile() {
     showToast('整合包正在导入中，请等待完成', 'warning');
     return;
   }
-  var _useVIsland = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
+  let _useVIsland = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
   try {
     const result = await API.selectModpackFile();
     if (result && result.filePath) {
@@ -162,8 +162,8 @@ async function importModpackFromFile() {
       showImportNameModal(fileBaseName, async function(customName) {
         window._modpackImporting = true;
         try {
-          var sessionId = 'local-modpack-' + Date.now();
-          var taskId = 'modpack-' + sessionId;
+          let sessionId = 'local-modpack-' + Date.now();
+          let taskId = 'modpack-' + sessionId;
           if (_useVIsland) {
             DynamicIsland.show(result.name || '整合包导入');
           } else if (typeof dlManager !== 'undefined') {
@@ -172,18 +172,18 @@ async function importModpackFromFile() {
           if (window.electronAPI?.onImportProgress) {
             if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
             // 节流控制：避免高频进度回调打爆主线程
-            var _ipThrottleTimer = null;
-            var _ipLastData = null;
-            var _ipLastTime = 0;
-            var IP_THROTTLE_MS = 250;
+            let _ipThrottleTimer = null;
+            let _ipLastData = null;
+            let _ipLastTime = 0;
+            let IP_THROTTLE_MS = 250;
             function _doImportProgress(data) {
-              var stageText = getImportStageText(data.message);
-              var pct = data.progress || 0;
-              var filesMapped = null;
+              let stageText = getImportStageText(data.message);
+              let pct = data.progress || 0;
+              let filesMapped = null;
               if (data.files && data.files.length > 0) {
-                var totalSpeed = 0;
-                for (var i = 0; i < data.files.length; i++) {
-                  var f = data.files[i];
+                let totalSpeed = 0;
+                for (let i = 0; i < data.files.length; i++) {
+                  let f = data.files[i];
                   if ((f.status === 'downloading' || f.s === 'downloading') && (f.speed || f.sp || 0) > 0) totalSpeed += (f.speed || f.sp || 0);
                 }
                 filesMapped = data.files.map(function (f) {
@@ -193,24 +193,24 @@ async function importModpackFromFile() {
               if (_useVIsland) {
                 DynamicIsland.update({ progress: pct, status: 'downloading', message: stageText, name: result.name || '整合包导入', speed: totalSpeed || data.speed || 0, files: filesMapped || [], stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
               } else if (typeof dlManager !== 'undefined') {
-                var speedText = '';
+                let speedText = '';
                 if (totalSpeed > 0) {
                   speedText = totalSpeed > 1024 * 1024 ? ' | ' + (totalSpeed / 1024 / 1024).toFixed(1) + ' MB/s' : ' | ' + (totalSpeed / 1024).toFixed(0) + ' KB/s';
                 }
-                var u = { progress: pct, status: 'downloading', message: stageText + speedText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
+                let u = { progress: pct, status: 'downloading', message: stageText + speedText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
                 if (filesMapped) u.files = filesMapped;
                 dlManager.update(taskId, u);
               }
             }
             window.electronAPI.onImportProgress(function (data) {
-              var isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
+              let isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
               if (isTerminal) {
                 if (_ipThrottleTimer) { clearTimeout(_ipThrottleTimer); _ipThrottleTimer = null; }
                 _doImportProgress(data);
                 return;
               }
               _ipLastData = data;
-              var now = Date.now();
+              let now = Date.now();
               if (now - _ipLastTime >= IP_THROTTLE_MS) {
                 _ipLastTime = now;
                 _doImportProgress(data);
@@ -235,7 +235,7 @@ async function importModpackFromFile() {
             }
             if (!_useVIsland) showToast(`整合包 "${importResult.name || '未知'}" 导入成功！`, 'success');
           } else {
-            var errMsg = importResult?.error || '未知错误';
+            let errMsg = importResult?.error || '未知错误';
             if (_useVIsland) {
               DynamicIsland.update({ status: 'failed', message: errMsg });
             } else if (typeof dlManager !== 'undefined') {
@@ -273,9 +273,9 @@ document.addEventListener('drop', (e) => {
       const fileBaseName = (file.name || '').replace(/\.(mrpack|zip|cursemodpack)$/i, '');
       showImportNameModal(fileBaseName, function(customName) {
         window._modpackImporting = true;
-        var _vi = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
-        var sessionId = 'local-modpack-' + Date.now();
-        var taskId = 'modpack-' + sessionId;
+        let _vi = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
+        let sessionId = 'local-modpack-' + Date.now();
+        let taskId = 'modpack-' + sessionId;
         if (_vi) {
           DynamicIsland.show(name || '整合包导入');
         } else if (typeof dlManager !== 'undefined') {
@@ -284,29 +284,29 @@ document.addEventListener('drop', (e) => {
         if (window.electronAPI?.onImportProgress) {
           if (window.electronAPI.removeImportProgressListener) window.electronAPI.removeImportProgressListener();
           // 节流控制：避免高频进度回调打爆主线程
-          var _progThrottleTimer = null;
-          var _progLastData = null;
-          var _progLastTime = 0;
-          var PROG_THROTTLE_MS = 250;
+          let _progThrottleTimer = null;
+          let _progLastData = null;
+          let _progLastTime = 0;
+          let PROG_THROTTLE_MS = 250;
           function _doHandleProgress(data) {
-            var stageText = getImportStageText(data.message);
-            var pct = data.progress || 0;
+            let stageText = getImportStageText(data.message);
+            let pct = data.progress || 0;
             if (_vi) {
-              var filesMapped = data.files ? data.files.map(function (f) { return { name: f.name || f.filename || f.n || '', status: f.status || f.s || 'pending', progress: f.progress || f.p || 0, speed: f.speed || f.sp || 0 }; }) : [];
+              let filesMapped = data.files ? data.files.map(function (f) { return { name: f.name || f.filename || f.n || '', status: f.status || f.s || 'pending', progress: f.progress || f.p || 0, speed: f.speed || f.sp || 0 }; }) : [];
               DynamicIsland.update({ progress: pct, status: 'downloading', message: stageText, name: name || '整合包导入', speed: data.speed || 0, files: filesMapped, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
             } else if (typeof dlManager !== 'undefined') {
               dlManager.update(taskId, { progress: pct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
             }
           }
           window.electronAPI.onImportProgress(function (data) {
-            var isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
+            let isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
             if (isTerminal) {
               if (_progThrottleTimer) { clearTimeout(_progThrottleTimer); _progThrottleTimer = null; }
               _doHandleProgress(data);
               return;
             }
             _progLastData = data;
-            var now = Date.now();
+            let now = Date.now();
             if (now - _progLastTime >= PROG_THROTTLE_MS) {
               _progLastTime = now;
               _doHandleProgress(data);
@@ -329,14 +329,14 @@ document.addEventListener('drop', (e) => {
             else if (typeof dlManager !== 'undefined') { dlManager.update(taskId, { status: 'completed', progress: 100, message: '导入完成' }); }
             if (!_vi) showToast(`整合包 "${result.name || '未知'}" 导入成功！`, 'success');
           } else {
-            var errMsg = result?.error || '未知错误';
+            let errMsg = result?.error || '未知错误';
             if (_vi) { DynamicIsland.update({ status: 'failed', message: errMsg }); }
             else if (typeof dlManager !== 'undefined') { dlManager.update(taskId, { status: 'error', message: errMsg }); }
             if (!_vi) showToast(`导入失败: ${errMsg}`, 'error');
           }
         }).catch(err => {
           window._modpackImporting = false;
-          var catchMsg = err.message || '';
+          let catchMsg = err.message || '';
           if (_vi) { DynamicIsland.update({ status: 'failed', message: catchMsg }); }
           else if (typeof dlManager !== 'undefined') { dlManager.update(taskId, { status: 'error', message: catchMsg }); }
           if (!_vi) showToast('导入失败: ' + catchMsg, 'error');

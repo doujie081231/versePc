@@ -197,9 +197,11 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
   // 导致 312 个 mod 的大型整合包在 4096MB 下 OOM 崩溃，绕过 auto 自动提高逻辑。
   // [关键修复 2026-07-02] 版本级内存设置（version-settings.json 的 memoryMode/memoryValue）
   // 优先级最高：用户为特定版本专门配置的内存，必须生效，否则 auto 算出的值可能超出物理内存导致崩溃
+  let memoryMode;
+  let memoryValue;
   if (settings.memoryMode === 'custom' && settings.memoryValue) {
-    var memoryMode = 'custom';
-    var memoryValue = settings.memoryValue;
+    memoryMode = 'custom';
+    memoryValue = settings.memoryValue;
   } else {
     let hasLaunchSettings = false;
     let launchMemoryMode = null;
@@ -217,12 +219,12 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
         }
       }
     } catch (e) {}
-    var { memoryMode, memoryValue } = resolveMemoryMode({
+    ({ memoryMode, memoryValue } = resolveMemoryMode({
       settingsMaxMemory: settings.maxMemory,
       hasLaunchSettings,
       launchMemoryMode,
       launchMemoryValue
-    });
+    }));
   }
   const totalMB = Math.floor(os.totalmem() / 1024 / 1024);
   const freeMB = Math.floor(os.freemem() / 1024 / 1024);

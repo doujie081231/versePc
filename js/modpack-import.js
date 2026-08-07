@@ -83,13 +83,13 @@
         }
 
         window._modpackImporting = true;
-        var _useVIsland = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
+        let _useVIsland = typeof DynamicIsland !== 'undefined' && DynamicIsland.isEnabled();
 
         if (typeof showToast === 'function' && !_useVIsland) showToast('正在导入整合包: ' + file.name, 'info');
 
-        var sessionId = 'local-modpack-' + Date.now();
-        var taskId = 'modpack-' + sessionId;
-        var iconUrl = '';
+        let sessionId = 'local-modpack-' + Date.now();
+        let taskId = 'modpack-' + sessionId;
+        let iconUrl = '';
 
         if (_useVIsland) {
             DynamicIsland.show(file.name || '整合包导入');
@@ -98,26 +98,26 @@
         }
 
         // 进度监听：优先 Tauri event，其次 Electron IPC
-        var _localSmoothPct = 0;
-        var _maxSeenPct = 0;
-        var _tauriProgressUnlisten = null;
+        let _localSmoothPct = 0;
+        let _maxSeenPct = 0;
+        let _tauriProgressUnlisten = null;
 
         // 节流控制：避免高频进度回调打爆主线程（400+ 文件每次 map 很重）
-        var _progressThrottleTimer = null;
-        var _progressLastData = null;
-        var _progressLastTime = 0;
-        var PROGRESS_THROTTLE_MS = 250;
+        let _progressThrottleTimer = null;
+        let _progressLastData = null;
+        let _progressLastTime = 0;
+        let PROGRESS_THROTTLE_MS = 250;
 
         function handleProgressData(data) {
             // 终态立即处理，不节流
-            var isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
+            let isTerminal = (data.status === 'completed' || data.status === 'failed' || (data.progress || 0) >= 100);
             if (isTerminal) {
                 if (_progressThrottleTimer) { clearTimeout(_progressThrottleTimer); _progressThrottleTimer = null; }
                 doHandleProgressData(data);
                 return;
             }
             _progressLastData = data;
-            var now = Date.now();
+            let now = Date.now();
             if (now - _progressLastTime >= PROGRESS_THROTTLE_MS) {
                 _progressLastTime = now;
                 doHandleProgressData(data);
@@ -134,16 +134,16 @@
         }
 
         function doHandleProgressData(data) {
-            var stageText = getImportStageText(data.message);
-            var rawPct = data.progress || 0;
+            let stageText = getImportStageText(data.message);
+            let rawPct = data.progress || 0;
             if (rawPct > _maxSeenPct) _maxSeenPct = rawPct;
             if (_localSmoothPct <= 0 || rawPct <= _localSmoothPct) {
                 _localSmoothPct = rawPct;
             } else {
                 _localSmoothPct = _localSmoothPct * 0.7 + rawPct * 0.3;
             }
-            var displayPct = Math.max(_maxSeenPct, Math.round(_localSmoothPct));
-            var filesMapped = null;
+            let displayPct = Math.max(_maxSeenPct, Math.round(_localSmoothPct));
+            let filesMapped = null;
             if (data.files && data.files.length > 0) {
                 filesMapped = data.files.map(function (f) {
                     return {
@@ -167,14 +167,14 @@
                     currentFile: data.currentFile || ''
                 });
             } else if (typeof dlManager !== 'undefined') {
-                var updateData = { progress: displayPct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
+                let updateData = { progress: displayPct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
                 if (filesMapped) updateData.files = filesMapped;
                 dlManager.update(taskId, updateData);
             }
         }
 
         // Tauri 环境：用 event.listen 监听 import-progress
-        var _isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+        let _isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
         if (_isTauri) {
             try {
                 const tauriEvent = window.__TAURI__ && window.__TAURI__.event
@@ -238,7 +238,7 @@
                 if (typeof loadVersions === 'function') loadVersions(true);
             } else {
                 window._modpackImporting = false;
-                var errMsg = (result && result.error) ? result.error : '导入失败';
+                let errMsg = (result && result.error) ? result.error : '导入失败';
                 if (_useVIsland) {
                     DynamicIsland.update({ status: 'failed', message: errMsg });
                 } else if (typeof dlManager !== 'undefined') {
@@ -253,7 +253,7 @@
             if (window.electronAPI && window.electronAPI.removeImportProgressListener) {
                 window.electronAPI.removeImportProgressListener();
             }
-            var catchMsg = '导入出错: ' + (err.message || err);
+            let catchMsg = '导入出错: ' + (err.message || err);
             if (_useVIsland) {
                 DynamicIsland.update({ status: 'failed', message: catchMsg });
             } else if (typeof dlManager !== 'undefined') {

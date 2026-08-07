@@ -230,7 +230,7 @@
             modal.classList.add('modal-visible');
             modal.classList.remove('modal-exiting');
         });
-        var onKeyDown = function (e) {
+        let onKeyDown = function (e) {
             if (e.key === 'Escape') dismissUpdateModal();
         };
         modal.addEventListener('keydown', onKeyDown);
@@ -264,9 +264,9 @@
         }
         // 滚动到"关于 VersePC"卡片
         setTimeout(function() {
-            var btnGroup = document.getElementById('updater-btn-group');
+            let btnGroup = document.getElementById('updater-btn-group');
             if (btnGroup) {
-                var card = btnGroup.closest('.card');
+                let card = btnGroup.closest('.card');
                 if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 300);

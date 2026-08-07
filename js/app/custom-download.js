@@ -127,9 +127,9 @@ const dlManager = {
         }
         if (detailEl) {
             if (hasStageData) {
-                var stageHash = '';
-                for (var i = 0; i < t.stageHistory.length; i++) {
-                    var s = t.stageHistory[i];
+                let stageHash = '';
+                for (let i = 0; i < t.stageHistory.length; i++) {
+                    let s = t.stageHistory[i];
                     stageHash += s.stage + '_' + s.progress + '_' + s.message + ';';
                 }
                 if (stageHash !== t._lastStageHash) {
@@ -137,9 +137,9 @@ const dlManager = {
                     detailEl.innerHTML = this.buildStageHistoryHtml(t.stageHistory);
                 }
             } else if (hasFileData) {
-                var hash = '';
-                for (var i = 0; i < t.files.length; i++) {
-                    var f = t.files[i];
+                let hash = '';
+                for (let i = 0; i < t.files.length; i++) {
+                    let f = t.files[i];
                     hash += f.name + '_' + f.status + '_' + f.progress + ';';
                 }
                 if (hash !== t._lastFilesHash) {
