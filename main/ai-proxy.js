@@ -7,11 +7,11 @@
 const { ipcMain, net } = require('electron');
 
 function _buildBody(format, model, messages, maxTokens) {
-    var tokens = maxTokens || 1024;
+    let tokens = maxTokens || 1024;
     if (format === 'anthropic') {
-        var sysMsg = '';
-        var userMsgs = [];
-        for (var i = 0; i < messages.length; i++) {
+        let sysMsg = '';
+        let userMsgs = [];
+        for (let i = 0; i < messages.length; i++) {
             if (messages[i].role === 'system') sysMsg += messages[i].content + '\n';
             else userMsgs.push({ role: messages[i].role, content: messages[i].content });
         }
@@ -22,9 +22,9 @@ function _buildBody(format, model, messages, maxTokens) {
             messages: userMsgs
         };
     } else if (format === 'google') {
-        var contents = [];
-        for (var i = 0; i < messages.length; i++) {
-            var role = messages[i].role === 'assistant' ? 'model' : 'user';
+        let contents = [];
+        for (let i = 0; i < messages.length; i++) {
+            let role = messages[i].role === 'assistant' ? 'model' : 'user';
             if (messages[i].role === 'system') {
                 contents.push({ role: 'user', parts: [{ text: messages[i].content }] });
             } else {
@@ -45,7 +45,7 @@ function _extractReply(format, data) {
             return '(空回复)';
         } else if (format === 'google') {
             if (data.candidates && data.candidates.length > 0) {
-                var parts = data.candidates[0].content && data.candidates[0].content.parts;
+                let parts = data.candidates[0].content && data.candidates[0].content.parts;
                 if (parts && parts.length > 0) return parts[0].text || '(空回复)';
             }
             return '(空回复)';
@@ -64,31 +64,31 @@ function _extractReply(format, data) {
 // 在主进程发起 HTTP 请求，不受 CORS 限制
 function _doRequest(options) {
     return new Promise((resolve, reject) => {
-        var req = net.request({
+        let req = net.request({
             method: 'POST',
             url: options.url,
             redirect: 'follow'
         });
         // 设置请求头
-        var headers = options.headers || {};
-        var keys = Object.keys(headers);
-        for (var i = 0; i < keys.length; i++) {
+        let headers = options.headers || {};
+        let keys = Object.keys(headers);
+        for (let i = 0; i < keys.length; i++) {
             req.setHeader(keys[i], headers[keys[i]]);
         }
-        var chunks = [];
+        let chunks = [];
         req.on('response', (response) => {
             response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
             response.on('end', () => {
-                var body = Buffer.concat(chunks).toString('utf8');
-                var status = response.statusCode;
+                let body = Buffer.concat(chunks).toString('utf8');
+                let status = response.statusCode;
                 resolve({ status: status, body: body });
             });
         });
         req.on('error', (e) => reject(e));
         // 超时时间：默认 60 秒，可通过 options.timeout 自定义
-        var timeoutMs = options.timeout || 60000;
+        let timeoutMs = options.timeout || 60000;
         setTimeout(() => { try { req.abort(); } catch (_) {} reject(new Error('AI 请求超时')); }, timeoutMs);
-        var bodyStr = JSON.stringify(options.body);
+        let bodyStr = JSON.stringify(options.body);
         req.write(bodyStr, 'utf8');
         req.end();
     });
@@ -96,8 +96,8 @@ function _doRequest(options) {
 
 // 将 AI 服务商返回的错误转换为用户能看懂的中文提示
 function _friendlyError(status, body) {
-    var raw = (body || '').substring(0, 300);
-    var lower = raw.toLowerCase();
+    let raw = (body || '').substring(0, 300);
+    let lower = raw.toLowerCase();
 
     // 余额不足 / 配额用尽（DeepSeek 用 402，OpenAI 用 429+insufficient_quota）
     if (status === 402 || lower.indexOf('insufficient_balance') !== -1 ||
@@ -170,14 +170,14 @@ function _friendlyError(status, body) {
 function registerAIProxyIPC() {
     ipcMain.handle('ai:chat', async (event, params) => {
         try {
-            var cfg = params || {};
+            let cfg = params || {};
             if (!cfg.provider && !cfg.endpoint) return { ok: false, error: '未配置供应商' };
             if (!cfg.apiKey) return { ok: false, error: '未配置 API Key' };
             if (!cfg.model) return { ok: false, error: '未选择模型' };
 
-            var format = cfg.apiFormat || 'openai';
-            var url;
-            var headers = { 'Content-Type': 'application/json' };
+            let format = cfg.apiFormat || 'openai';
+            let url;
+            let headers = { 'Content-Type': 'application/json' };
 
             // 自定义供应商
             if (cfg.provider === 'custom' || cfg.endpoint) {
@@ -186,7 +186,7 @@ function registerAIProxyIPC() {
                     headers['x-api-key'] = cfg.apiKey;
                     headers['anthropic-version'] = '2023-06-01';
                 } else if (format === 'google') {
-                    var sep = url.indexOf('?') !== -1 ? '&' : '?';
+                    let sep = url.indexOf('?') !== -1 ? '&' : '?';
                     url = url + sep + 'key=' + cfg.apiKey;
                 } else {
                     // OpenAI 格式：自动补全 /chat/completions 路径
@@ -208,18 +208,18 @@ function registerAIProxyIPC() {
                 if (!url) return { ok: false, error: '供应商缺少接口地址' };
             }
 
-            var body = _buildBody(format, cfg.model, cfg.messages || [], cfg.maxTokens);
-            var resp = await _doRequest({ url: url, headers: headers, body: body, timeout: cfg.timeout || 60000 });
+            let body = _buildBody(format, cfg.model, cfg.messages || [], cfg.maxTokens);
+            let resp = await _doRequest({ url: url, headers: headers, body: body, timeout: cfg.timeout || 60000 });
 
             if (resp.status >= 400) {
                 return { ok: false, error: _friendlyError(resp.status, resp.body) };
             }
 
-            var data;
+            let data;
             try { data = JSON.parse(resp.body); }
             catch (e) { return { ok: false, error: 'AI 返回非 JSON：' + resp.body.substring(0, 200) }; }
 
-            var reply = _extractReply(format, data);
+            let reply = _extractReply(format, data);
             return { ok: true, reply: reply };
         } catch (e) {
             console.error('[AI Proxy] 请求失败:', e.message);
@@ -232,9 +232,9 @@ function registerAIProxyIPC() {
     // params: { texts: [string], source?: 'en', target?: 'zh-CN' }
     function _doGetRequest(url, timeoutMs) {
         return new Promise((resolve, reject) => {
-            var req = net.request({ method: 'GET', url: url, redirect: 'follow' });
+            let req = net.request({ method: 'GET', url: url, redirect: 'follow' });
             req.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
-            var chunks = [];
+            let chunks = [];
             req.on('response', (response) => {
                 response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
                 response.on('end', () => {
@@ -249,31 +249,31 @@ function registerAIProxyIPC() {
 
     ipcMain.handle('translate:batch', async (event, params) => {
         try {
-            var texts = (params && params.texts) || [];
+            let texts = (params && params.texts) || [];
             if (texts.length === 0) return { ok: true, results: [] };
-            var source = (params && params.source) || 'en';
-            var target = (params && params.target) || 'zh-CN';
-            var langPair = source + '|' + target;
-            var results = new Array(texts.length);
-            var translatedCount = 0;
-            var failedCount = 0;
+            let source = (params && params.source) || 'en';
+            let target = (params && params.target) || 'zh-CN';
+            let langPair = source + '|' + target;
+            let results = new Array(texts.length);
+            let translatedCount = 0;
+            let failedCount = 0;
 
             // 4 路并行，平衡速度和限流
-            var PARALLEL = 4;
+            let PARALLEL = 4;
 
             async function translateOne(text, idx) {
                 if (!text || !text.trim()) { results[idx] = text; return; }
-                var url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent(langPair);
-                for (var retry = 0; retry < 5; retry++) {
+                let url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent(langPair);
+                for (let retry = 0; retry < 5; retry++) {
                     try {
-                        var resp = await _doGetRequest(url, 10000);
+                        let resp = await _doGetRequest(url, 10000);
                         if (resp.status === 429) {
                             // 限流，等待后重试，逐次加长
                             await new Promise(r => setTimeout(r, 3000 + retry * 2000));
                             continue;
                         }
                         if (resp.status >= 400) { await new Promise(r => setTimeout(r, 1000)); continue; }
-                        var data;
+                        let data;
                         try { data = JSON.parse(resp.body); }
                         catch (e) { await new Promise(r => setTimeout(r, 1000)); continue; }
                         if (data && data.responseData && data.responseData.translatedText) {
@@ -294,10 +294,10 @@ function registerAIProxyIPC() {
                 failedCount++;
             }
 
-            for (var i = 0; i < texts.length; i += PARALLEL) {
-                var batch = texts.slice(i, i + PARALLEL);
-                var promises = [];
-                for (var j = 0; j < batch.length; j++) {
+            for (let i = 0; i < texts.length; i += PARALLEL) {
+                let batch = texts.slice(i, i + PARALLEL);
+                let promises = [];
+                for (let j = 0; j < batch.length; j++) {
                     promises.push(translateOne(batch[j], i + j));
                 }
                 await Promise.all(promises);

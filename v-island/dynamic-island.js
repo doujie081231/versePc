@@ -8,22 +8,22 @@
 (function () {
     'use strict';
 
-    var _el = null;
-    var _hoverZone = null;
-    var _expanded = false;
-    var _visible = false;
-    var _state = 'idle';
-    var _autoDismissTimer = null;
-    var _hoverTimer = null;
-    var _leaveTimer = null;
-    var _hideTimer = null;
-    var _replyHideTimer = null;
-    var _tasks = {};  // 任务列表，key=任务名
-    var _currentName = null;  // 当前活跃任务名
+    let _el = null;
+    let _hoverZone = null;
+    let _expanded = false;
+    let _visible = false;
+    let _state = 'idle';
+    let _autoDismissTimer = null;
+    let _hoverTimer = null;
+    let _leaveTimer = null;
+    let _hideTimer = null;
+    let _replyHideTimer = null;
+    let _tasks = {};  // 任务列表，key=任务名
+    let _currentName = null;  // 当前活跃任务名
 
     function isEnabled() {
         try {
-            var el = document.getElementById('vIsland');
+            let el = document.getElementById('vIsland');
             if (el) return !!el.checked;
             return document.body.classList.contains('v-island-enabled');
         } catch (_) { return false; }
@@ -90,7 +90,7 @@
 
         document.body.appendChild(_el);
 
-        var pill = _el.querySelector('.v-island__pill');
+        let pill = _el.querySelector('.v-island__pill');
         pill.addEventListener('click', function (e) {
             if (e.target.closest('.v-island__close')) {
                 e.stopPropagation();
@@ -103,13 +103,13 @@
         });
 
         // 输入框回车触发对话
-        var input = _el.querySelector('.v-island__input');
+        let input = _el.querySelector('.v-island__input');
         if (input) {
             input.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter' || e.keyCode === 13) {
                     e.preventDefault();
                     e.stopPropagation();
-                    var q = input.value.trim();
+                    let q = input.value.trim();
                     if (q) _askQuestion(q);
                 } else if (e.key === 'Escape' || e.keyCode === 27) {
                     _collapseChatInput();
@@ -139,19 +139,19 @@
     }
 
     // 圆环周长 = 2 * PI * 15 ≈ 94.25
-    var _circumference = 94.25;
+    let _circumference = 94.25;
 
     function _setRingProgress(pct) {
         if (!_el) return;
-        var offset = _circumference - (Math.min(pct, 100) / 100) * _circumference;
-        var fill = _el.querySelector('.v-island__ring-fill');
+        let offset = _circumference - (Math.min(pct, 100) / 100) * _circumference;
+        let fill = _el.querySelector('.v-island__ring-fill');
         if (fill) fill.style.strokeDashoffset = offset;
     }
 
     function _setRingNum(num) {
         if (!_el) return;
-        var numEl = _el.querySelector('.v-island__ring-num');
-        var iconEl = _el.querySelector('.v-island__ring-icon');
+        let numEl = _el.querySelector('.v-island__ring-num');
+        let iconEl = _el.querySelector('.v-island__ring-icon');
         if (numEl) {
             numEl.textContent = num;
             numEl.style.display = num > 0 ? '' : 'none';
@@ -162,22 +162,22 @@
     }
 
     function _getActiveTaskCount() {
-        var count = 0;
-        var keys = Object.keys(_tasks);
-        for (var i = 0; i < keys.length; i++) {
-            var t = _tasks[keys[i]];
+        let count = 0;
+        let keys = Object.keys(_tasks);
+        for (let i = 0; i < keys.length; i++) {
+            let t = _tasks[keys[i]];
             if (t.status === 'downloading') count++;
         }
         return count;
     }
 
     function _getTotalProgress() {
-        var keys = Object.keys(_tasks);
+        let keys = Object.keys(_tasks);
         if (keys.length === 0) return 0;
-        var total = 0;
-        var count = 0;
-        for (var i = 0; i < keys.length; i++) {
-            var t = _tasks[keys[i]];
+        let total = 0;
+        let count = 0;
+        for (let i = 0; i < keys.length; i++) {
+            let t = _tasks[keys[i]];
             if (t.status === 'downloading' || t.status === 'completed') {
                 total += Math.max(0, Math.min(100, t.progress || 0));
                 count++;
@@ -199,16 +199,16 @@
 
     function _buildStageHistoryHtml(stages) {
         if (!stages || stages.length === 0) return '';
-        var html = '<div class="v-island__stages">';
-        for (var i = 0; i < stages.length; i++) {
-            var s = stages[i];
+        let html = '<div class="v-island__stages">';
+        for (let i = 0; i < stages.length; i++) {
+            let s = stages[i];
             // 后端格式: { stage, message, progress }
-            var name = s.message || s.stage || s.name || '';
-            var pct = Math.round(s.progress || s.percent || 0);
-            var dc = 'v-island__stage-dot';
+            let name = s.message || s.stage || s.name || '';
+            let pct = Math.round(s.progress || s.percent || 0);
+            let dc = 'v-island__stage-dot';
             if (pct >= 100) dc += ' v-island__stage-dot--done';
             else if (pct > 0) dc += ' v-island__stage-dot--active';
-            var pctText = pct > 0 && pct < 100 ? pct + '%' : '';
+            let pctText = pct > 0 && pct < 100 ? pct + '%' : '';
             html += '<div class="v-island__stage"><span class="' + dc + '"></span><span class="v-island__stage-name">' + _esc(name) + '</span><span class="v-island__stage-pct">' + pctText + '</span></div>';
         }
         return html + '</div>';
@@ -216,15 +216,15 @@
 
     function _buildFilesHtml(files) {
         if (!files || files.length === 0) return '';
-        var shown = files.slice(0, 8);
-        var html = '<div class="v-island__files">';
-        for (var i = 0; i < shown.length; i++) {
-            var f = shown[i];
+        let shown = files.slice(0, 8);
+        let html = '<div class="v-island__files">';
+        for (let i = 0; i < shown.length; i++) {
+            let f = shown[i];
             // 兼容两种格式: { name, status, progress } 和 { n, s, p }
-            var fname = f.name || f.n || f.filename || '';
-            var fstatus = f.status || f.s || 'pending';
-            var fprogress = Math.round(f.progress || f.p || 0);
-            var st = '';
+            let fname = f.name || f.n || f.filename || '';
+            let fstatus = f.status || f.s || 'pending';
+            let fprogress = Math.round(f.progress || f.p || 0);
+            let st = '';
             if (fstatus === 'downloading') st = fprogress + '%';
             else if (fstatus === 'completed' || fstatus === 'done') st = '完成';
             else if (fstatus === 'failed') st = '失败';
@@ -237,17 +237,17 @@
     }
 
     function _buildTasksHtml() {
-        var keys = Object.keys(_tasks);
+        let keys = Object.keys(_tasks);
         if (keys.length === 0) {
             return '<div class="v-island__empty">暂无下载任务</div>';
         }
 
-        var html = '<div class="v-island__tasks">';
-        for (var i = 0; i < keys.length; i++) {
-            var t = _tasks[keys[i]];
-            var pct = Math.max(0, Math.min(100, t.progress || 0));
-            var statusText = '';
-            var statusClass = '';
+        let html = '<div class="v-island__tasks">';
+        for (let i = 0; i < keys.length; i++) {
+            let t = _tasks[keys[i]];
+            let pct = Math.max(0, Math.min(100, t.progress || 0));
+            let statusText = '';
+            let statusClass = '';
 
             if (t.status === 'downloading') {
                 statusText = Math.round(pct) + '%';
@@ -289,20 +289,20 @@
 
     function _updateDetail() {
         if (!_expanded || !_el) return;
-        var detail = _el.querySelector('.v-island__detail');
+        let detail = _el.querySelector('.v-island__detail');
         if (!detail) return;
         detail.innerHTML = _buildTasksHtml();
     }
 
     function _refreshDisplay() {
         if (!_el) return;
-        var active = _getActiveTaskCount();
-        var totalPct = _getTotalProgress();
+        let active = _getActiveTaskCount();
+        let totalPct = _getTotalProgress();
 
         _setRingNum(active);
         _setRingProgress(totalPct);
 
-        var subEl = _el.querySelector('.v-island__subtitle');
+        let subEl = _el.querySelector('.v-island__subtitle');
         if (subEl) {
             if (active > 0) {
                 subEl.textContent = active + ' 个任务进行中  ' + Math.round(totalPct) + '%';
@@ -348,8 +348,8 @@
         _clearHideTimer();
         if (!_el) _ensureEl();
         _el.classList.add('v-island--expanded', 'v-island--chat');
-        var input = _el.querySelector('.v-island__input');
-        var sub = _el.querySelector('.v-island__subtitle');
+        let input = _el.querySelector('.v-island__input');
+        let sub = _el.querySelector('.v-island__subtitle');
         if (sub) sub.style.display = 'none';
         if (input) {
             input.style.display = '';
@@ -361,7 +361,7 @@
 
     // 灵动岛弹出音效：短促高频"啵"声，类似 iPhone 灵动岛
     // 复用单个 AudioContext，避免每次新建导致内存泄漏
-    var _popSoundCtx = null;
+    let _popSoundCtx = null;
     function _getPopSoundCtx() {
         if (!_popSoundCtx) {
             try {
@@ -378,10 +378,10 @@
     }
     function _playPopSound() {
         try {
-            var ctx = _getPopSoundCtx();
+            let ctx = _getPopSoundCtx();
             if (!ctx) return;
-            var osc = ctx.createOscillator();
-            var gain = ctx.createGain();
+            let osc = ctx.createOscillator();
+            let gain = ctx.createGain();
             osc.type = 'sine';
             osc.frequency.setValueAtTime(880, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
@@ -399,8 +399,8 @@
         if (!_el) return;
         _expanded = false;
         _el.classList.remove('v-island--expanded', 'v-island--chat');
-        var input = _el.querySelector('.v-island__input');
-        var sub = _el.querySelector('.v-island__subtitle');
+        let input = _el.querySelector('.v-island__input');
+        let sub = _el.querySelector('.v-island__subtitle');
         if (input) { input.style.display = 'none'; input.value = ''; }
         if (sub) sub.style.display = '';
         // 回到圆环默认状态
@@ -412,14 +412,14 @@
     // ========================================================================
 
     // 工具定义：告诉 AI 有哪些操作可用
-    var _tools = [
+    let _tools = [
         {
             name: 'navigate',
             desc: '切换到指定页面',
             danger: false,
             params: { page: '页面名称：home(主页)/download(下载)/resource(资源)/mods(模组)/modpack(整合包)/settings(设置)/accounts(账户)/personalize(个性化)/java(Java)/experimental(实验性)' },
             run: function (args) {
-                var pageMap = {
+                let pageMap = {
                     '主页': 'home', '首页': 'home', 'home': 'home',
                     '下载': 'download', 'download': 'download',
                     '资源': 'resource', 'resource': 'resource',
@@ -431,7 +431,7 @@
                     'java': 'java', 'Java': 'java',
                     '实验': 'experimental', '实验性': 'experimental', 'experimental': 'experimental'
                 };
-                var p = pageMap[args.page] || args.page;
+                let p = pageMap[args.page] || args.page;
                 if (typeof navigateToPage === 'function') {
                     navigateToPage(p);
                     return '已切换到 ' + args.page + ' 页面';
@@ -445,7 +445,7 @@
             danger: false,
             params: { type: '文件夹类型：mods(模组文件夹)/saves(存档文件夹)/version(版本文件夹)/screenshots(截图文件夹)' },
             run: function (args) {
-                var versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) ||
+                let versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) ||
                                 (typeof launchVersionCustomSelect !== 'undefined' && launchVersionCustomSelect ? launchVersionCustomSelect.getValue() : '');
                 if (!versionId) return '请先选择一个版本';
                 if (typeof API !== 'undefined' && API.openVersionFolder) {
@@ -462,8 +462,8 @@
             params: { version: '要启动的版本ID（可选，不填则启动当前选中版本）' },
             run: function (args) {
                 if (args.version && typeof launchVersionCustomSelect !== 'undefined' && launchVersionCustomSelect) {
-                    var versions = (typeof installedVersions !== 'undefined') ? installedVersions : [];
-                    var match = versions.find(function (v) {
+                    let versions = (typeof installedVersions !== 'undefined') ? installedVersions : [];
+                    let match = versions.find(function (v) {
                         return v.id === args.version || (v.customName && v.customName.indexOf(args.version) !== -1);
                     });
                     if (match) {
@@ -485,7 +485,7 @@
             run: function (args) {
                 if (typeof launchVersionCustomSelect === 'undefined' || !launchVersionCustomSelect) return '版本选择器未初始化';
                 if (typeof installedVersions === 'undefined') return '版本列表未加载';
-                var match = installedVersions.find(function (v) {
+                let match = installedVersions.find(function (v) {
                     return v.id === args.version ||
                            (v.customName && v.customName.indexOf(args.version) !== -1) ||
                            v.id.indexOf(args.version) !== -1;
@@ -505,7 +505,7 @@
             run: function (args) {
                 if (typeof navigateToPage === 'function') navigateToPage('mods');
                 setTimeout(function () {
-                    var searchInput = document.querySelector('#mods-search-input, input[placeholder*="搜索"]');
+                    let searchInput = document.querySelector('#mods-search-input, input[placeholder*="搜索"]');
                     if (searchInput) {
                         searchInput.value = args.query;
                         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -522,14 +522,14 @@
             danger: false,
             params: { version: '版本名称或ID（可选）' },
             run: function (args) {
-                var versionId = args.version;
+                let versionId = args.version;
                 if (!versionId) {
                     versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) ||
                                 (typeof launchVersionCustomSelect !== 'undefined' && launchVersionCustomSelect ? launchVersionCustomSelect.getValue() : '');
                 }
                 if (!versionId) return '请先选择一个版本';
                 if (typeof installedVersions !== 'undefined') {
-                    var match = installedVersions.find(function (v) {
+                    let match = installedVersions.find(function (v) {
                         return v.id === versionId || (v.customName && v.customName.indexOf(versionId) !== -1) || v.id.indexOf(versionId) !== -1;
                     });
                     if (match) versionId = match.id;
@@ -547,15 +547,15 @@
             danger: false,
             params: {},
             run: function () {
-                var status = [];
+                let status = [];
                 if (typeof installedVersions !== 'undefined') {
                     status.push('已安装 ' + installedVersions.length + ' 个版本');
                 }
-                var activeTaskCount = _getActiveTaskCount();
+                let activeTaskCount = _getActiveTaskCount();
                 if (activeTaskCount > 0) {
                     status.push(activeTaskCount + ' 个下载任务进行中');
                 }
-                var currentVer = '';
+                let currentVer = '';
                 if (typeof launchVersionCustomSelect !== 'undefined' && launchVersionCustomSelect) {
                     currentVer = launchVersionCustomSelect.getValue();
                 }
@@ -571,7 +571,7 @@
             danger: false,
             params: {},
             run: function () {
-                var versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) ||
+                let versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) ||
                                 (typeof launchVersionCustomSelect !== 'undefined' && launchVersionCustomSelect ? launchVersionCustomSelect.getValue() : '');
                 if (!versionId) return '请先选择一个版本';
                 if (typeof checkModUpdatesForVersion === 'function') {
@@ -590,7 +590,7 @@
                 if (!args.version) return '请指定要下载的版本号';
                 if (typeof navigateToPage === 'function') navigateToPage('download');
                 setTimeout(function () {
-                    var searchInput = document.querySelector('#download-search-input, input[placeholder*="搜索"]');
+                    let searchInput = document.querySelector('#download-search-input, input[placeholder*="搜索"]');
                     if (searchInput) {
                         searchInput.value = args.version;
                         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -603,8 +603,8 @@
 
     // 构建给 AI 的系统提示词
     function _buildToolPrompt() {
-        var toolList = _tools.map(function (t) {
-            var params = Object.keys(t.params).map(function (k) {
+        let toolList = _tools.map(function (t) {
+            let params = Object.keys(t.params).map(function (k) {
                 return k + '(' + t.params[k] + ')';
             }).join(', ');
             return t.name + (t.danger ? '[确认]' : '') + ':' + params;
@@ -614,13 +614,13 @@
 
     // 解析 AI 回复，提取操作指令
     function _parseAction(reply) {
-        var marker = '{{ACTION:';
-        var idx = reply.indexOf(marker);
+        let marker = '{{ACTION:';
+        let idx = reply.indexOf(marker);
         if (idx === -1) return null;
-        var start = idx + marker.length;
-        var depth = 0;
-        var jsonEnd = -1;
-        for (var i = start; i < reply.length; i++) {
+        let start = idx + marker.length;
+        let depth = 0;
+        let jsonEnd = -1;
+        for (let i = start; i < reply.length; i++) {
             if (reply[i] === '{') depth++;
             else if (reply[i] === '}') {
                 depth--;
@@ -628,14 +628,14 @@
             }
         }
         if (jsonEnd === -1) return null;
-        var jsonStr = reply.substring(start, jsonEnd + 1);
+        let jsonStr = reply.substring(start, jsonEnd + 1);
         try {
-            var action = JSON.parse(jsonStr);
+            let action = JSON.parse(jsonStr);
             // 跳过 JSON 后的 }} 标记结尾
-            var textStart = jsonEnd + 1;
+            let textStart = jsonEnd + 1;
             if (reply[textStart] === '}') textStart++;
             if (reply[textStart] === '}') textStart++;
-            var text = reply.substring(0, idx) + reply.substring(textStart).trim();
+            let text = reply.substring(0, idx) + reply.substring(textStart).trim();
             return { name: action.name, args: action.args || {}, text: text };
         } catch (e) {
             console.warn('[V岛] 解析操作指令失败:', e.message, 'json:', jsonStr);
@@ -645,7 +645,7 @@
 
     // 执行操作
     function _executeAction(action) {
-        var tool = _tools.find(function (t) { return t.name === action.name; });
+        let tool = _tools.find(function (t) { return t.name === action.name; });
         if (!tool) return '未知操作：' + action.name;
         try {
             return tool.run(action.args || {});
@@ -657,21 +657,21 @@
     // 显示确认对话框（危险操作）
     function _showConfirmDialog(action, question, reply) {
         if (!_el) return;
-        var detail = _el.querySelector('.v-island__detail');
+        let detail = _el.querySelector('.v-island__detail');
         if (!detail) return;
 
         _el.classList.remove('v-island--thinking');
         _el.classList.add('v-island--expanded');
         _expanded = true;
 
-        var sub = _el.querySelector('.v-island__subtitle');
+        let sub = _el.querySelector('.v-island__subtitle');
         if (sub) {
             sub.style.display = '';
             sub.textContent = '需要确认';
         }
 
-        var tool = _tools.find(function (t) { return t.name === action.name; });
-        var actionDesc = tool ? tool.desc : action.name;
+        let tool = _tools.find(function (t) { return t.name === action.name; });
+        let actionDesc = tool ? tool.desc : action.name;
 
         detail.innerHTML =
             '<div class="v-island__reply">' +
@@ -682,11 +682,11 @@
                 '</div>' +
             '</div>';
 
-        var yesBtn = detail.querySelector('.v-island__confirm-yes');
-        var noBtn = detail.querySelector('.v-island__confirm-no');
+        let yesBtn = detail.querySelector('.v-island__confirm-yes');
+        let noBtn = detail.querySelector('.v-island__confirm-no');
         if (yesBtn) {
             yesBtn.onclick = function () {
-                var result = _executeAction(action);
+                let result = _executeAction(action);
                 _showReply(question, result);
             };
         }
@@ -707,35 +707,35 @@
 
     // 收集当前页面上所有可交互元素，返回文字清单
     function _snapshotUI() {
-        var selector = 'button, a, input, [onclick], [role="button"], .version-item, .mod-card, .modpack-item, .search-result, [data-clickable], .clickable, .nav-item, .vset-nav-item, .tab-btn';
-        var els = document.querySelectorAll(selector);
-        var items = [];
-        var visibleEls = [];
-        for (var i = 0; i < els.length; i++) {
-            var el = els[i];
+        let selector = 'button, a, input, [onclick], [role="button"], .version-item, .mod-card, .modpack-item, .search-result, [data-clickable], .clickable, .nav-item, .vset-nav-item, .tab-btn';
+        let els = document.querySelectorAll(selector);
+        let items = [];
+        let visibleEls = [];
+        for (let i = 0; i < els.length; i++) {
+            let el = els[i];
             // 跳过不可见元素
-            var rect = el.getBoundingClientRect();
+            let rect = el.getBoundingClientRect();
             if (rect.width === 0 || rect.height === 0) continue;
             if (el.offsetParent === null && el.style.position !== 'fixed') continue;
             // 跳过 V 岛自身元素
             if (el.closest('#v-island')) continue;
 
-            var text = (el.textContent || '').trim().substring(0, 60);
-            var placeholder = el.getAttribute('placeholder') || '';
-            var title = el.getAttribute('title') || '';
-            var type = el.getAttribute('type') || '';
-            var value = el.value || '';
-            var cls = el.className || '';
-            var desc = text || placeholder || title || value || type;
+            let text = (el.textContent || '').trim().substring(0, 60);
+            let placeholder = el.getAttribute('placeholder') || '';
+            let title = el.getAttribute('title') || '';
+            let type = el.getAttribute('type') || '';
+            let value = el.value || '';
+            let cls = el.className || '';
+            let desc = text || placeholder || title || value || type;
             if (!desc) continue;
 
-            var tag = el.tagName.toLowerCase();
-            var action = 'click';
+            let tag = el.tagName.toLowerCase();
+            let action = 'click';
             if (tag === 'input' || tag === 'textarea') {
                 action = (type === 'checkbox' || type === 'radio') ? 'click' : 'input';
             }
 
-            var idx = visibleEls.length;
+            let idx = visibleEls.length;
             visibleEls.push(el);
             items.push({
                 id: idx,
@@ -750,8 +750,8 @@
         _snapshotElements = visibleEls;
 
         // 生成文字清单
-        var lines = items.map(function (it) {
-            var line = '[' + it.id + '] ' + it.action + ' "' + it.desc + '"';
+        let lines = items.map(function (it) {
+            let line = '[' + it.id + '] ' + it.action + ' "' + it.desc + '"';
             if (it.placeholder) line += ' (placeholder:' + it.placeholder + ')';
             if (it.value && it.action === 'input') line += ' (current:' + it.value + ')';
             return line;
@@ -759,12 +759,12 @@
         return lines.join('\n');
     }
 
-    var _snapshotElements = [];
+    let _snapshotElements = [];
 
     // 执行 AI 指定的界面操作
     function _executeUIAction(action) {
         if (action.type === 'click') {
-            var el = _snapshotElements[action.target];
+            let el = _snapshotElements[action.target];
             if (!el) return '元素' + action.target + '不存在';
             try {
                 el.scrollIntoView({ block: 'center' });
@@ -774,7 +774,7 @@
                 return '点击失败：' + e.message;
             }
         } else if (action.type === 'input') {
-            var el2 = _snapshotElements[action.target];
+            let el2 = _snapshotElements[action.target];
             if (!el2) return '元素' + action.target + '不存在';
             try {
                 el2.scrollIntoView({ block: 'center' });
@@ -799,13 +799,13 @@
 
     // 解析 AI 返回的操控指令
     function _parseUIAction(reply) {
-        var marker = '{{UI:';
-        var idx = reply.indexOf(marker);
+        let marker = '{{UI:';
+        let idx = reply.indexOf(marker);
         if (idx === -1) return null;
-        var start = idx + marker.length;
-        var depth = 0;
-        var jsonEnd = -1;
-        for (var i = start; i < reply.length; i++) {
+        let start = idx + marker.length;
+        let depth = 0;
+        let jsonEnd = -1;
+        for (let i = start; i < reply.length; i++) {
             if (reply[i] === '{') depth++;
             else if (reply[i] === '}') {
                 depth--;
@@ -813,9 +813,9 @@
             }
         }
         if (jsonEnd === -1) return null;
-        var jsonStr = reply.substring(start, jsonEnd + 1);
+        let jsonStr = reply.substring(start, jsonEnd + 1);
         try {
-            var action = JSON.parse(jsonStr);
+            let action = JSON.parse(jsonStr);
             if (typeof action.target === 'string') action.target = parseInt(action.target);
             return action;
         } catch (e) {
@@ -827,32 +827,32 @@
     // 操控循环：AI 像人一样一步步操作软件
     async function _runAgentTask(userRequest) {
         if (!_el) _ensureEl();
-        var sub = _el.querySelector('.v-island__subtitle');
-        var detail = _el.querySelector('.v-island__detail');
+        let sub = _el.querySelector('.v-island__subtitle');
+        let detail = _el.querySelector('.v-island__detail');
 
-        var toolPrompt = '回复格式{{UI:{"type":"click/input/done","target":编号,"value":"文字","think":"用一句话说正在干什么"}}}}。click点按钮，input填输入框(可加enter:true回车)，done表示完成。元素编号是[]里的数字。think描述这一步在做什么。每次只返回一个操作。';
+        let toolPrompt = '回复格式{{UI:{"type":"click/input/done","target":编号,"value":"文字","think":"用一句话说正在干什么"}}}}。click点按钮，input填输入框(可加enter:true回车)，done表示完成。元素编号是[]里的数字。think描述这一步在做什么。每次只返回一个操作。';
 
-        var MAX_STEPS = 5;
-        var history = [];
-        var stepLogs = [];
-        var lastAction = null;
+        let MAX_STEPS = 5;
+        let history = [];
+        let stepLogs = [];
+        let lastAction = null;
 
         // 实时显示操作进度的函数
         function _renderProgress(currentStep, currentDesc, isThinking) {
             if (!detail) return;
-            var stepsHtml = '';
-            for (var i = 0; i < stepLogs.length; i++) {
+            let stepsHtml = '';
+            for (let i = 0; i < stepLogs.length; i++) {
                 stepsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;color:var(--text-muted);">' +
                     '<span style="width:6px;height:6px;border-radius:50%;background:#4caf50;flex-shrink:0;"></span>' +
                     '<span>' + _esc(stepLogs[i]) + '</span>' +
                 '</div>';
             }
-            var currentHtml = '';
+            let currentHtml = '';
             if (currentDesc) {
-                var dotStyle = isThinking
+                let dotStyle = isThinking
                     ? 'width:6px;height:6px;border-radius:50%;background:var(--text-muted);flex-shrink:0;animation:v-island-pulse 1s ease-in-out infinite;'
                     : 'width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;';
-                var color = isThinking ? 'var(--text-muted)' : 'var(--accent)';
+                let color = isThinking ? 'var(--text-muted)' : 'var(--accent)';
                 currentHtml = '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;color:' + color + ';">' +
                     '<span style="' + dotStyle + '"></span>' +
                     '<span>' + _esc(currentDesc) + '</span>' +
@@ -867,9 +867,9 @@
 
         // 带重试的AI调用（最多重试3次）
         async function _chatWithRetry(messages) {
-            for (var retry = 0; retry < 3; retry++) {
+            for (let retry = 0; retry < 3; retry++) {
                 try {
-                    var reply = await chatWithAI(messages);
+                    let reply = await chatWithAI(messages);
                     if (reply && reply !== '(空回复)' && reply.trim() !== '') {
                         return reply;
                     }
@@ -886,10 +886,10 @@
             if (sub) sub.textContent = '正在检查任务结果...';
             _renderProgress(stepLogs.length, '正在检查任务结果...', true);
             try {
-                var verifySnapshot = _snapshotUI();
-                var verifyMsg = '用户的需求是：' + userRequest + '。你已经执行了一些操作。请根据当前界面状态，用一句话告诉用户任务的结果。如果任务成功完成，说明结果；如果没完成或有问题，说明原因。只回复结果，不要返回操作指令。';
-                var verifyMessages = [{ role: 'user', content: verifyMsg + '\n\n当前界面元素：\n' + verifySnapshot }];
-                var verifyReply = await _chatWithRetry(verifyMessages);
+                let verifySnapshot = _snapshotUI();
+                let verifyMsg = '用户的需求是：' + userRequest + '。你已经执行了一些操作。请根据当前界面状态，用一句话告诉用户任务的结果。如果任务成功完成，说明结果；如果没完成或有问题，说明原因。只回复结果，不要返回操作指令。';
+                let verifyMessages = [{ role: 'user', content: verifyMsg + '\n\n当前界面元素：\n' + verifySnapshot }];
+                let verifyReply = await _chatWithRetry(verifyMessages);
                 if (verifyReply && verifyReply !== '(空回复)') {
                     return verifyReply;
                 }
@@ -899,7 +899,7 @@
             return doneHint || _generateSummary(userRequest, stepLogs, _snapshotUI());
         }
 
-        for (var step = 0; step < MAX_STEPS; step++) {
+        for (let step = 0; step < MAX_STEPS; step++) {
             _el.classList.add('v-island--thinking');
             _el.classList.add('v-island--expanded');
             _el.classList.remove('v-island--chat');
@@ -911,29 +911,29 @@
             _renderProgress(step + 1, '思考下一步操作...', true);
 
             // 快照当前界面
-            var snapshot = _snapshotUI();
-            var pageId = (typeof currentPage === 'string') ? currentPage : (document.querySelector('.nav-item.active')?.textContent || '').trim();
-            var pageDesc = '当前页面：' + (pageId || '未知');
+            let snapshot = _snapshotUI();
+            let pageId = (typeof currentPage === 'string') ? currentPage : (document.querySelector('.nav-item.active')?.textContent || '').trim();
+            let pageDesc = '当前页面：' + (pageId || '未知');
 
             // 把提示词放到user消息里，不用system消息（避免mimo空回复bug）
-            var userMsg = '你是V岛，通过操作界面元素帮用户完成任务。' + toolPrompt + '\n\n' +
+            let userMsg = '你是V岛，通过操作界面元素帮用户完成任务。' + toolPrompt + '\n\n' +
                 pageDesc + '\n用户需求：' + userRequest + '\n\n界面元素：\n' + snapshot;
             if (history.length > 0) {
                 userMsg = '上一步结果：' + history[history.length - 1] + '\n' + userMsg;
             }
 
-            var messages = [{ role: 'user', content: userMsg }];
+            let messages = [{ role: 'user', content: userMsg }];
 
-            var reply = await _chatWithRetry(messages);
+            let reply = await _chatWithRetry(messages);
             if (!reply) {
                 // AI连续空回复，根据界面状态自己生成结果
-                var currentSnapshot = _snapshotUI();
-                var summary = _generateSummary(userRequest, stepLogs, currentSnapshot);
+                let currentSnapshot = _snapshotUI();
+                let summary = _generateSummary(userRequest, stepLogs, currentSnapshot);
                 _showReply(userRequest, summary);
                 return;
             }
 
-            var action = _parseUIAction(reply);
+            let action = _parseUIAction(reply);
             if (!action) {
                 // AI没返回操控指令，直接显示回复
                 _showReply(userRequest, reply);
@@ -942,28 +942,28 @@
 
             // 任务完成 - 验证结果后再回复
             if (action.type === 'done') {
-                var doneHint = action.think || '任务完成';
-                var verifiedResult = await _verifyTaskResult(doneHint);
+                let doneHint = action.think || '任务完成';
+                let verifiedResult = await _verifyTaskResult(doneHint);
                 _showReply(userRequest, verifiedResult);
                 return;
             }
 
             // 重复操作检测：如果连续两步操作相同，说明卡住了
             if (lastAction && lastAction.type === action.type && lastAction.target === action.target) {
-                var stuckSummary = _generateSummary(userRequest, stepLogs, _snapshotUI());
+                let stuckSummary = _generateSummary(userRequest, stepLogs, _snapshotUI());
                 _showReply(userRequest, stuckSummary);
                 return;
             }
 
             // 显示这一步的操作描述（实时）
-            var stepDesc = action.think || ('执行' + action.type + '操作');
+            let stepDesc = action.think || ('执行' + action.type + '操作');
             _renderProgress(step + 1, stepDesc, false);
 
             // 执行操作
-            var result = _executeUIAction(action);
+            let result = _executeUIAction(action);
             if (result === null) {
-                var doneHint2 = action.think || '任务完成';
-                var verifiedResult2 = await _verifyTaskResult(doneHint2);
+                let doneHint2 = action.think || '任务完成';
+                let verifiedResult2 = await _verifyTaskResult(doneHint2);
                 _showReply(userRequest, verifiedResult2);
                 return;
             }
@@ -977,31 +977,31 @@
         }
 
         // 跑满步数后，生成有用的总结而不是简单的"已执行N步"
-        var finalSummary = _generateSummary(userRequest, stepLogs, _snapshotUI());
+        let finalSummary = _generateSummary(userRequest, stepLogs, _snapshotUI());
         _showReply(userRequest, finalSummary);
     }
 
     // 根据已完成步骤和界面状态生成结果总结（不依赖AI）
     function _generateSummary(userRequest, stepLogs, snapshot) {
-        var steps = stepLogs.length;
+        let steps = stepLogs.length;
         if (steps === 0) return '操作未能完成，请稍后重试';
 
         // 从快照里提取有用信息
-        var lines = snapshot.split('\n');
-        var resultItems = [];
-        for (var i = 0; i < lines.length; i++) {
+        let lines = snapshot.split('\n');
+        let resultItems = [];
+        for (let i = 0; i < lines.length; i++) {
             // 找搜索结果、卡片等
             if (lines[i].match(/\d+\] click ".*"/) && lines[i].length > 30) {
-                var m = lines[i].match(/\d+\] click "(.*)"/);
+                let m = lines[i].match(/\d+\] click "(.*)"/);
                 if (m && m[1]) {
-                    var desc = m[1].substring(0, 40);
+                    let desc = m[1].substring(0, 40);
                     if (desc.indexOf('安装') !== -1 || desc.indexOf('下载') !== -1) continue;
                     resultItems.push(desc);
                 }
             }
         }
 
-        var summary = '已完成 ' + steps + ' 步操作：' + stepLogs[steps - 1];
+        let summary = '已完成 ' + steps + ' 步操作：' + stepLogs[steps - 1];
         if (resultItems.length > 0) {
             summary += '。当前界面显示' + resultItems.length + '个结果，如：' + resultItems.slice(0, 2).join('、');
             if (resultItems.length > 2) summary += '等';
@@ -1012,21 +1012,21 @@
 
     // 判断是否需要进入"操控模式"（而不是简单问答）
     function _shouldUseAgentMode(q) {
-        var keywords = ['找', '搜索', '下载', '安装', '打开', '去', '点击', '帮我', '操作', '切换', '启动'];
-        var lowerQ = q.toLowerCase();
-        for (var i = 0; i < keywords.length; i++) {
+        let keywords = ['找', '搜索', '下载', '安装', '打开', '去', '点击', '帮我', '操作', '切换', '启动'];
+        let lowerQ = q.toLowerCase();
+        for (let i = 0; i < keywords.length; i++) {
             if (lowerQ.indexOf(keywords[i]) !== -1) return true;
         }
         return false;
     }
 
-    var _pendingConfirm = null;
+    let _pendingConfirm = null;
 
     // 提问 → V 岛变圆环旋转思考 → 展开显示回复
     async function _askQuestion(q) {
         if (!_el) _ensureEl();
-        var input = _el.querySelector('.v-island__input');
-        var sub = _el.querySelector('.v-island__subtitle');
+        let input = _el.querySelector('.v-island__input');
+        let sub = _el.querySelector('.v-island__subtitle');
         // 隐藏输入框，显示思考状态
         if (input) input.style.display = 'none';
         _el.classList.add('v-island--thinking');
@@ -1037,9 +1037,9 @@
 
         // 检查是否是"确认执行"的回复（用户之前被要求确认）
         if (_pendingConfirm && q.match(/^(确认|确定|yes|ok|好|可以)/i)) {
-            var pendingAction = _pendingConfirm;
+            let pendingAction = _pendingConfirm;
             _pendingConfirm = null;
-            var result = _executeAction(pendingAction);
+            let result = _executeAction(pendingAction);
             _dialogHistory.push({ role: 'assistant', content: result });
             if (_dialogHistory.length > 10) _dialogHistory = _dialogHistory.slice(-10);
             _showReply(q, result);
@@ -1053,18 +1053,18 @@
         }
 
         // 构建带工具提示的消息
-        var messages = [{ role: 'system', content: _buildToolPrompt() }];
+        let messages = [{ role: 'system', content: _buildToolPrompt() }];
         _dialogHistory.push({ role: 'user', content: q });
         if (_dialogHistory.length > 10) _dialogHistory = _dialogHistory.slice(-10);
         messages = messages.concat(_dialogHistory);
 
         try {
-            var reply = await chatWithAI(messages);
+            let reply = await chatWithAI(messages);
 
             // 解析操作指令
-            var action = _parseAction(reply);
+            let action = _parseAction(reply);
             if (action) {
-                var tool = _tools.find(function (t) { return t.name === action.name; });
+                let tool = _tools.find(function (t) { return t.name === action.name; });
                 if (tool && tool.danger) {
                     // 危险操作：先确认
                     _pendingConfirm = action;
@@ -1072,8 +1072,8 @@
                     _dialogHistory.push({ role: 'assistant', content: action.text || tool.desc });
                 } else {
                     // 安全操作：直接执行
-                    var execResult = _executeAction(action);
-                    var displayText = action.text || execResult;
+                    let execResult = _executeAction(action);
+                    let displayText = action.text || execResult;
                     if (execResult && execResult.indexOf('出错') === -1 && execResult.indexOf('无法') === -1) {
                         displayText = (action.text ? action.text + ' ' : '') + execResult;
                     }
@@ -1099,8 +1099,8 @@
         _el.classList.remove('v-island--chat');  // 切回展开态展示回复
         _el.classList.add('v-island--expanded');
         _expanded = true;
-        var sub = _el.querySelector('.v-island__subtitle');
-        var detail = _el.querySelector('.v-island__detail');
+        let sub = _el.querySelector('.v-island__subtitle');
+        let detail = _el.querySelector('.v-island__detail');
         if (sub) {
             sub.style.display = '';
             sub.textContent = 'V 岛回复';
@@ -1116,8 +1116,8 @@
         speak(reply);
 
         // 打字机结束后 10 秒自动收起（时间按字数动态计算）
-        var typingDuration = Math.min(reply.length * 30 + 500, 8000);
-        var totalDelay = typingDuration + 10000;
+        let typingDuration = Math.min(reply.length * 30 + 500, 8000);
+        let totalDelay = typingDuration + 10000;
         if (_replyHideTimer) clearTimeout(_replyHideTimer);
         _replyHideTimer = setTimeout(function () {
             if (_state === 'idle' && _expanded) _collapseChatInput();
@@ -1127,13 +1127,13 @@
     // 打字机效果：逐字输出
     function _typewriter(el, text, speed) {
         if (!el) return;
-        var i = 0;
+        let i = 0;
         el.textContent = '';
-        var timer = setInterval(function () {
+        let timer = setInterval(function () {
             if (i >= text.length) {
                 clearInterval(timer);
                 // 打字结束，移除光标
-                var cursor = el.parentNode.querySelector('.v-typing-cursor');
+                let cursor = el.parentNode.querySelector('.v-typing-cursor');
                 if (cursor) cursor.remove();
                 return;
             }
@@ -1148,14 +1148,14 @@
 
     function _showIdle() {
         if (!isEnabled()) return;
-        var el = _ensureEl();
+        let el = _ensureEl();
         _visible = true;
         _state = 'idle';
 
-        var subEl = el.querySelector('.v-island__subtitle');
-        var closeBtn = el.querySelector('.v-island__close');
+        let subEl = el.querySelector('.v-island__subtitle');
+        let closeBtn = el.querySelector('.v-island__close');
         if (subEl) {
-            var active = _getActiveTaskCount();
+            let active = _getActiveTaskCount();
             subEl.textContent = active > 0 ? active + ' 个任务进行中' : '点击展开查看任务';
         }
         if (closeBtn) closeBtn.style.display = 'none';
@@ -1185,8 +1185,8 @@
 
     function show(title) {
         if (!isEnabled()) return;
-        var el = _ensureEl();
-        var name = title || '导入中';
+        let el = _ensureEl();
+        let name = title || '导入中';
         _currentName = name;
 
         // 添加任务
@@ -1213,10 +1213,10 @@
         if (!isEnabled() || !_el) return;
         if (!data) return;
 
-        var name = data.name || _currentName;
+        let name = data.name || _currentName;
         if (!name || !_tasks[name]) return;
 
-        var task = _tasks[name];
+        let task = _tasks[name];
         if (data.progress != null) task.progress = Math.max(0, Math.min(100, data.progress));
         if (data.status) task.status = data.status;
         if (data.speed != null) task.speed = data.speed;
@@ -1225,7 +1225,7 @@
         if (data.files) task.files = data.files;
         if (data.currentFile) task.currentFile = data.currentFile;
 
-        var el = _el;
+        let el = _el;
 
         if (data.status === 'completed') {
             task.progress = 100;
@@ -1235,9 +1235,9 @@
             el.classList.add('v-island--completed', 'v-island--visible');
             _visible = true;
 
-            var subEl = el.querySelector('.v-island__subtitle');
+            let subEl = el.querySelector('.v-island__subtitle');
             if (subEl) subEl.textContent = '导入完成';
-            var cb = el.querySelector('.v-island__close');
+            let cb = el.querySelector('.v-island__close');
             if (cb) cb.style.display = '';
 
             // 3秒后移除任务并隐藏（如果没有其他活跃任务）
@@ -1266,9 +1266,9 @@
             el.classList.add('v-island--failed', 'v-island--visible');
             _visible = true;
 
-            var subEl2 = el.querySelector('.v-island__subtitle');
+            let subEl2 = el.querySelector('.v-island__subtitle');
             if (subEl2) subEl2.textContent = (data.message || '导入失败');
-            var cb2 = el.querySelector('.v-island__close');
+            let cb2 = el.querySelector('.v-island__close');
             if (cb2) cb2.style.display = '';
             _refreshDisplay();
             return;
@@ -1289,7 +1289,7 @@
 
     function preview() {
         if (!isEnabled()) return;
-        var el = _ensureEl();
+        let el = _ensureEl();
         _visible = true;
         el.classList.remove('v-island--visible', 'v-island--preview', 'v-island--completed', 'v-island--failed', 'island--active', 'island--idle');
         void el.offsetWidth;
@@ -1297,7 +1297,7 @@
 
         _setRingNum(0);
         _setRingProgress(0);
-        var subEl = el.querySelector('.v-island__subtitle');
+        let subEl = el.querySelector('.v-island__subtitle');
         if (subEl) subEl.textContent = '鼠标移到顶部可唤出';
 
         el.addEventListener('animationend', function () {
@@ -1314,7 +1314,7 @@
     // 主方案：IPC 调用主进程 msedge-tts（微软晓晓女声，接近真人）
     // 降级方案：浏览器原生 SpeechSynthesis（机器感，但保证断网也有声）
     // ========================================================================
-    var _tts = null;
+    let _tts = null;
     function _getTTS() {
         if (_tts) return _tts;
         _tts = {
@@ -1337,12 +1337,12 @@
             },
 
             _drain: function () {
-                var self = this;
+                let self = this;
                 if (this.queue.length === 0) { this.playing = false; return; }
                 this.playing = true;
-                var item = this.queue.shift();
-                var done = false;
-                var finish = function () {
+                let item = this.queue.shift();
+                let done = false;
+                let finish = function () {
                     if (done) return;
                     done = true;
                     if (item.onEnd) item.onEnd();
@@ -1360,7 +1360,7 @@
                 if (!window.electronAPI || !window.electronAPI.tts || !window.electronAPI.tts.speak) {
                     cb(false); return;
                 }
-                var self = this;
+                let self = this;
                 window.electronAPI.tts.speak(text, 'zh-CN-XiaoxiaoNeural').then(function (res) {
                     if (!res || !res.ok || !res.data || res.data.length === 0) {
                         console.warn('[V岛 TTS] msedge-tts 返回空，降级原生');
@@ -1368,12 +1368,12 @@
                         return;
                     }
                     try {
-                        var blob = new Blob([res.data], { type: 'audio/mpeg' });
-                        var url = URL.createObjectURL(blob);
-                        var audio = new Audio(url);
+                        let blob = new Blob([res.data], { type: 'audio/mpeg' });
+                        let url = URL.createObjectURL(blob);
+                        let audio = new Audio(url);
                         self.audio = audio;
-                        var done = false;
-                        var finish = function (ok) {
+                        let done = false;
+                        let finish = function (ok) {
                             if (done) return;
                             done = true;
                             URL.revokeObjectURL(url);
@@ -1402,10 +1402,10 @@
 
             // 降级方案：浏览器原生 SpeechSynthesis
             _loadVoices: function () {
-                var self = this;
+                let self = this;
                 if (!window.speechSynthesis) return;
-                var pick = function () {
-                    var all = window.speechSynthesis.getVoices() || [];
+                let pick = function () {
+                    let all = window.speechSynthesis.getVoices() || [];
                     self.voices = all;
                 };
                 pick();
@@ -1416,16 +1416,16 @@
 
             _pickVoice: function () {
                 if (!this.voices || this.voices.length === 0) return null;
-                var preferred = ['zh-CN-Xiaoxiao', 'zh-CN-Xiaoyi', 'zh-CN-Xiaohan'];
-                for (var i = 0; i < preferred.length; i++) {
-                    for (var j = 0; j < this.voices.length; j++) {
+                let preferred = ['zh-CN-Xiaoxiao', 'zh-CN-Xiaoyi', 'zh-CN-Xiaohan'];
+                for (let i = 0; i < preferred.length; i++) {
+                    for (let j = 0; j < this.voices.length; j++) {
                         if (this.voices[j].name === preferred[i]) return this.voices[j];
                     }
                 }
-                for (var k = 0; k < this.voices.length; k++) {
+                for (let k = 0; k < this.voices.length; k++) {
                     if (this.voices[k].lang === 'zh-CN') return this.voices[k];
                 }
-                for (var m = 0; m < this.voices.length; m++) {
+                for (let m = 0; m < this.voices.length; m++) {
                     if (this.voices[m].lang && this.voices[m].lang.indexOf('zh') === 0) return this.voices[m];
                 }
                 return this.voices[0];
@@ -1433,9 +1433,9 @@
 
             _playWithNative: function (text, cb) {
                 if (!window.speechSynthesis) { cb(); return; }
-                var self = this;
-                var utter = new SpeechSynthesisUtterance(text);
-                var voice = self._pickVoice();
+                let self = this;
+                let utter = new SpeechSynthesisUtterance(text);
+                let voice = self._pickVoice();
                 if (voice) {
                     utter.voice = voice;
                     console.log('[V岛 TTS] 降级原生语音:', voice.name);
@@ -1461,7 +1461,7 @@
     // ========================================================================
     // 扩展模块 2：AI 对话（云端供应商，支持 openai/anthropic/google 格式）
     // ========================================================================
-    var AI_PROVIDERS = {
+    let AI_PROVIDERS = {
         zhipu:     { name: '智谱清言', icon: 'zhipu',     apiFormat: 'openai',     endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', authHeader: 'Authorization', authPrefix: 'Bearer ', models: [{ id: 'glm-4-flash', name: 'GLM-4-Flash', free: true }, { id: 'glm-4', name: 'GLM-4' }] },
         deepseek:  { name: 'DeepSeek', icon: 'deepseek',  apiFormat: 'openai',     endpoint: 'https://api.deepseek.com/chat/completions',          authHeader: 'Authorization', authPrefix: 'Bearer ', models: [{ id: 'deepseek-chat', name: 'DeepSeek-V3' }, { id: 'deepseek-reasoner', name: 'DeepSeek-R1' }] },
         qwen:      { name: '通义千问', icon: 'qwen',      apiFormat: 'openai',     endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', authHeader: 'Authorization', authPrefix: 'Bearer ', models: [{ id: 'qwen-turbo', name: 'Qwen Turbo' }, { id: 'qwen-plus', name: 'Qwen Plus' }] },
@@ -1505,8 +1505,8 @@
 
     // 将 AI 服务商返回的错误转换为用户能看懂的中文提示
     function _friendlyError(status, body) {
-        var raw = (body || '').substring(0, 300);
-        var lower = raw.toLowerCase();
+        let raw = (body || '').substring(0, 300);
+        let lower = raw.toLowerCase();
         if (status === 402 || lower.indexOf('insufficient_balance') !== -1 ||
             lower.indexOf('insufficient balance') !== -1 ||
             lower.indexOf('insufficient_quota') !== -1 ||
@@ -1546,12 +1546,12 @@
     }
 
     async function chatWithAI(messages) {
-        var cfg = _getAIConfig();
+        let cfg = _getAIConfig();
         if (!cfg.provider || !cfg.apiKey) return '我还没接入 AI，请先在 V 岛设置中配置供应商。';
         if (!cfg.model) return '未选择模型。';
 
         // 自定义供应商需要补全 apiFormat 和 endpoint
-        var reqConfig = {
+        let reqConfig = {
             provider: cfg.provider,
             apiKey: cfg.apiKey,
             model: cfg.model,
@@ -1564,7 +1564,7 @@
             reqConfig.apiFormat = cfg.apiFormat || 'openai';
         } else {
             // 预设供应商：从 AI_PROVIDERS 取接口地址和格式
-            var p = AI_PROVIDERS[cfg.provider];
+            let p = AI_PROVIDERS[cfg.provider];
             if (!p) return '不支持的供应商：' + cfg.provider;
             reqConfig.endpoint = p.endpoint;
             reqConfig.apiFormat = p.apiFormat;
@@ -1577,7 +1577,7 @@
         // 通过 IPC 调用主进程发起请求，绕过 CORS
         if (window.electronAPI && window.electronAPI.ai && window.electronAPI.ai.chat) {
             try {
-                var res = await window.electronAPI.ai.chat(reqConfig);
+                let res = await window.electronAPI.ai.chat(reqConfig);
                 if (res && res.ok) return res.reply || '(空回复)';
                 return '对话失败：' + (res && res.error ? res.error : '未知错误');
             } catch (e) {
@@ -1588,8 +1588,8 @@
         // 降级：渲染进程直接 fetch（可能被 CORS 拦截）
         console.warn('[V岛] 主进程 AI 代理不可用，降级到渲染进程 fetch');
         try {
-            var headers = { 'Content-Type': 'application/json' };
-            var url;
+            let headers = { 'Content-Type': 'application/json' };
+            let url;
             if (reqConfig.apiFormat === 'google') {
                 url = reqConfig.endpoint + '?key=' + cfg.apiKey;
             } else if (reqConfig.apiFormat === 'anthropic') {
@@ -1600,13 +1600,13 @@
                 url = reqConfig.endpoint;
                 headers['Authorization'] = 'Bearer ' + cfg.apiKey;
             }
-            var body = _buildBody(reqConfig.apiFormat, cfg.model, messages);
-            var resp = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+            let body = _buildBody(reqConfig.apiFormat, cfg.model, messages);
+            let resp = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) });
             if (!resp.ok) {
-                var t = await resp.text().catch(function () { return ''; });
+                let t = await resp.text().catch(function () { return ''; });
                 return _friendlyError(resp.status, t);
             }
-            var data = await resp.json();
+            let data = await resp.json();
             return _extractReply(reqConfig.apiFormat, data);
         } catch (e) {
             return '对话出错：' + (e.message || e);
@@ -1616,16 +1616,16 @@
     // ========================================================================
     // 扩展模块 3：语音识别与唤醒词（嘿 Verse）
     // ========================================================================
-    var _wakeRec = null;
-    var _wakeListening = false;
-    var _inDialog = false;
-    var _dialogHistory = [];
+    let _wakeRec = null;
+    let _wakeListening = false;
+    let _inDialog = false;
+    let _dialogHistory = [];
 
     function _startWake() {
-        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { console.warn('[V岛] 浏览器不支持语音识别，唤醒词功能不可用'); return; }
         if (_wakeRec) _stopWake();
-        var rec = new SR();
+        let rec = new SR();
         rec.lang = 'zh-CN';
         rec.continuous = true;
         rec.interimResults = true;
@@ -1634,13 +1634,13 @@
         rec.onaudioend = function () { console.log('[V岛唤醒] 音频流已结束'); };
         rec.onspeechstart = function () { console.log('[V岛唤醒] 检测到说话'); };
         rec.onresult = function (ev) {
-            var txt = '';
-            for (var i = ev.resultIndex; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
+            let txt = '';
+            for (let i = ev.resultIndex; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
             if (txt) console.log('[V岛唤醒] 识别到:', txt);
             // 唤醒词匹配：放宽到各种近似音
             // 中文识别"Verse"通常返回：沃斯/佛斯/沃尔斯/弗斯/vers/维斯 等
-            var lower = txt.toLowerCase();
-            var matched = false;
+            let lower = txt.toLowerCase();
+            let matched = false;
             // 1. 中文字面匹配
             if (txt.indexOf('嘿Verse') !== -1 || txt.indexOf('嘿verse') !== -1 ||
                 txt.indexOf('嘿 Verse') !== -1) {
@@ -1654,7 +1654,7 @@
             // 3. 中文近似音匹配（最常见）
             else if (txt.indexOf('嘿') !== -1) {
                 // "嘿"后面的字匹配 Verse 的各种近似音
-                var afterHey = txt.substring(txt.indexOf('嘿') + 1);
+                let afterHey = txt.substring(txt.indexOf('嘿') + 1);
                 if (afterHey.match(/(沃斯|佛斯|沃尔斯|弗斯|维斯|维尔|沃瑟|佛瑟|vers|verse|沃斯尔|佛斯尔)/i)) {
                     matched = true;
                 }
@@ -1703,15 +1703,15 @@
         _stopWake();
         _setStatusIndicator('正在聆听...', 'listening');
         speak('我在听，请说');
-        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { _endDialog(); return; }
-        var rec = new SR();
+        let rec = new SR();
         rec.lang = 'zh-CN';
         rec.continuous = false;
         rec.interimResults = false;
-        var gotReply = false;
+        let gotReply = false;
         rec.onresult = function (ev) {
-            var q = ev.results[0][0].transcript;
+            let q = ev.results[0][0].transcript;
             _setStatusIndicator('思考中...', 'processing');
             _askAI(q);
         };
@@ -1726,11 +1726,11 @@
         _dialogHistory.push({ role: 'user', content: q });
         if (_dialogHistory.length > 10) _dialogHistory = _dialogHistory.slice(-10);
         _dialogHistory.unshift({ role: 'system', content: '你是 V 岛，一个住在 Minecraft 启动器里的语音助手，回答简洁友好，不超过两句话。' });
-        var reply = await chatWithAI(_dialogHistory);
+        let reply = await chatWithAI(_dialogHistory);
         _dialogHistory.shift();
         _dialogHistory.push({ role: 'assistant', content: reply });
         _setStatusIndicator('回答中...', 'processing');
-        var self = this;
+        let self = this;
         speak(reply, function () { _endDialog(); });
     }
 
@@ -1743,7 +1743,7 @@
     function _setStatusIndicator(text, state) {
         // 在 V 岛 pill 上显示对话状态（复用 subtitle）
         if (!_el) return;
-        var subEl = _el.querySelector('.v-island__subtitle');
+        let subEl = _el.querySelector('.v-island__subtitle');
         if (subEl) subEl.textContent = text;
         // 状态切换 class
         _el.classList.remove('island--idle', 'island--active', 'v-island--listening', 'v-island--processing');
@@ -1769,10 +1769,10 @@
 
     function _showOnboarding() {
         // 动态创建引导页 DOM
-        var existing = document.getElementById('v-island-onboarding');
+        let existing = document.getElementById('v-island-onboarding');
         if (existing) existing.remove();
 
-        var overlay = document.createElement('div');
+        let overlay = document.createElement('div');
         overlay.id = 'v-island-onboarding';
         overlay.className = 'v-island-onboarding';
         overlay.innerHTML =
@@ -1814,7 +1814,7 @@
     }
 
     function _hideOnboarding() {
-        var overlay = document.getElementById('v-island-onboarding');
+        let overlay = document.getElementById('v-island-onboarding');
         if (!overlay) return;
         overlay.classList.add('v-island-onboarding--fadeout');
         setTimeout(function () {
@@ -1824,16 +1824,16 @@
     }
 
     function _runGreetingPhase() {
-        var lines = document.querySelectorAll('.v-island-onboarding__phase[data-phase="greeting"] .v-island-onboarding__title');
-        var texts = ['Hi～我是 V 岛', '一个活在你启动器的助手', '接下来，我将帮助你完成很多工作', '在此之前，我们先完成一些配置'];
-        var i = 0;
-        var self = this;
-        var step = function () {
+        let lines = document.querySelectorAll('.v-island-onboarding__phase[data-phase="greeting"] .v-island-onboarding__title');
+        let texts = ['Hi～我是 V 岛', '一个活在你启动器的助手', '接下来，我将帮助你完成很多工作', '在此之前，我们先完成一些配置'];
+        let i = 0;
+        let self = this;
+        let step = function () {
             if (i >= lines.length) {
                 setTimeout(function () { _switchPhase('provider'); _runProviderPhase(); }, 1200);
                 return;
             }
-            var el = lines[i];
+            let el = lines[i];
             if (el) el.classList.add('v-appear');
             speak(texts[i], function () { i++; setTimeout(step, 400); });
         };
@@ -1841,21 +1841,21 @@
     }
 
     function _switchPhase(name) {
-        var phases = document.querySelectorAll('.v-island-onboarding__phase');
-        for (var i = 0; i < phases.length; i++) {
+        let phases = document.querySelectorAll('.v-island-onboarding__phase');
+        for (let i = 0; i < phases.length; i++) {
             phases[i].style.display = (phases[i].getAttribute('data-phase') === name) ? '' : 'none';
         }
     }
 
     function _runProviderPhase() {
-        var grid = document.getElementById('v-island-onboarding-providers');
-        var cfgBox = document.getElementById('v-island-onboarding-config');
-        var nextBtn = document.getElementById('v-island-onboarding-next');
-        var skipBtn = document.getElementById('v-island-onboarding-skip');
+        let grid = document.getElementById('v-island-onboarding-providers');
+        let cfgBox = document.getElementById('v-island-onboarding-config');
+        let nextBtn = document.getElementById('v-island-onboarding-next');
+        let skipBtn = document.getElementById('v-island-onboarding-skip');
         if (!grid) return;
 
         grid.innerHTML = '';
-        var selectedProvider = null;
+        let selectedProvider = null;
         if (cfgBox) cfgBox.style.display = 'none';
         if (nextBtn) nextBtn.disabled = true;
 
@@ -1865,13 +1865,13 @@
 
         // 渲染供应商列表
         Object.keys(AI_PROVIDERS).forEach(function (id) {
-            var p = AI_PROVIDERS[id];
-            var card = document.createElement('div');
+            let p = AI_PROVIDERS[id];
+            let card = document.createElement('div');
             card.className = 'v-island-onboarding-provider-card';
             card.innerHTML = '<img src="img/providers/' + p.icon + '.png" alt="" onerror="this.style.visibility=\'hidden\'"><span>' + p.name + '</span>';
             card.onclick = function () {
-                var all = grid.querySelectorAll('.v-island-onboarding-provider-card');
-                for (var j = 0; j < all.length; j++) all[j].classList.remove('v-island-onboarding-provider-card--active');
+                let all = grid.querySelectorAll('.v-island-onboarding-provider-card');
+                for (let j = 0; j < all.length; j++) all[j].classList.remove('v-island-onboarding-provider-card--active');
                 card.classList.add('v-island-onboarding-provider-card--active');
                 selectedProvider = id;
                 _showProviderConfig(id, nextBtn);
@@ -1880,12 +1880,12 @@
         });
 
         // 追加"自定义供应商"卡片
-        var customCard = document.createElement('div');
+        let customCard = document.createElement('div');
         customCard.className = 'v-island-onboarding-provider-card';
         customCard.innerHTML = '<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:var(--bg-glass,rgba(255,255,255,0.08));border-radius:12px;font-size:24px;border:1px dashed var(--border,rgba(255,255,255,0.2));">+</div><span>自定义供应商</span>';
         customCard.onclick = function () {
-            var all = grid.querySelectorAll('.v-island-onboarding-provider-card');
-            for (var j = 0; j < all.length; j++) all[j].classList.remove('v-island-onboarding-provider-card--active');
+            let all = grid.querySelectorAll('.v-island-onboarding-provider-card');
+            for (let j = 0; j < all.length; j++) all[j].classList.remove('v-island-onboarding-provider-card--active');
             customCard.classList.add('v-island-onboarding-provider-card--active');
             selectedProvider = 'custom';
             _showProviderConfig('custom', nextBtn);
@@ -1893,7 +1893,7 @@
         grid.appendChild(customCard);
 
         // 完成按钮
-        var finishBtn = document.getElementById('v-island-onboarding-finish');
+        let finishBtn = document.getElementById('v-island-onboarding-finish');
         if (finishBtn) finishBtn.onclick = function () {
             _completeOnboarding();
             stopSpeak();
@@ -1903,9 +1903,9 @@
     }
 
     function _showProviderConfig(id, nextBtn) {
-        var cfgBox = document.getElementById('v-island-onboarding-config');
-        var keyInput = document.getElementById('v-island-onboarding-key');
-        var modelSel = document.getElementById('v-island-onboarding-model');
+        let cfgBox = document.getElementById('v-island-onboarding-config');
+        let keyInput = document.getElementById('v-island-onboarding-key');
+        let modelSel = document.getElementById('v-island-onboarding-model');
         if (!cfgBox) return;
 
         // 自定义供应商：显示完整输入框
@@ -1926,10 +1926,10 @@
                 '<input type="password" class="text-input" id="v-island-onboarding-key" placeholder="粘贴你的 API Key"></div>' +
                 '<div><label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">模型 ID</label>' +
                 '<input type="text" class="text-input" id="v-island-onboarding-model" placeholder="例如：gpt-4o-mini"></div>';
-            var newKey = document.getElementById('v-island-onboarding-key');
-            var newEndpoint = document.getElementById('v-island-onboarding-endpoint');
-            var newModel = document.getElementById('v-island-onboarding-model');
-            var check = function () {
+            let newKey = document.getElementById('v-island-onboarding-key');
+            let newEndpoint = document.getElementById('v-island-onboarding-endpoint');
+            let newModel = document.getElementById('v-island-onboarding-model');
+            let check = function () {
                 if (nextBtn) nextBtn.disabled = !(newKey && newKey.value && newKey.value.trim() &&
                                                   newEndpoint && newEndpoint.value && newEndpoint.value.trim() &&
                                                   newModel && newModel.value && newModel.value.trim());
@@ -1942,7 +1942,7 @@
         }
 
         // 预设供应商：恢复原始配置 HTML
-        var p = AI_PROVIDERS[id];
+        let p = AI_PROVIDERS[id];
         if (!p) return;
         cfgBox.style.display = '';
         cfgBox.innerHTML =
@@ -1950,38 +1950,38 @@
                 '<input type="password" class="text-input" id="v-island-onboarding-key" placeholder="粘贴你的 API Key"></div>' +
             '<div><label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">模型</label>' +
                 '<select class="select-input" id="v-island-onboarding-model"></select></div>';
-        var newKeyInput = document.getElementById('v-island-onboarding-key');
-        var newModelSel = document.getElementById('v-island-onboarding-model');
+        let newKeyInput = document.getElementById('v-island-onboarding-key');
+        let newModelSel = document.getElementById('v-island-onboarding-model');
         if (newModelSel) {
             newModelSel.innerHTML = '';
             (p.models || []).forEach(function (m) {
-                var opt = document.createElement('option');
+                let opt = document.createElement('option');
                 opt.value = m.id; opt.textContent = m.name + (m.free ? ' (免费)' : '');
                 newModelSel.appendChild(opt);
             });
         }
-        var check2 = function () { if (nextBtn) nextBtn.disabled = !(newKeyInput && newKeyInput.value && newKeyInput.value.trim()); };
+        let check2 = function () { if (nextBtn) nextBtn.disabled = !(newKeyInput && newKeyInput.value && newKeyInput.value.trim()); };
         if (newKeyInput) { newKeyInput.value = ''; newKeyInput.oninput = check2; }
         check2();
     }
 
     function _saveProviderSelection(providerId) {
         if (!providerId) return;
-        var cfg = _getAIConfig();
+        let cfg = _getAIConfig();
         if (providerId === 'custom') {
-            var epInput = document.getElementById('v-island-onboarding-endpoint');
-            var fmtInput = document.getElementById('v-island-onboarding-format');
-            var keyInput = document.getElementById('v-island-onboarding-key');
-            var modelInput = document.getElementById('v-island-onboarding-model');
+            let epInput = document.getElementById('v-island-onboarding-endpoint');
+            let fmtInput = document.getElementById('v-island-onboarding-format');
+            let keyInput = document.getElementById('v-island-onboarding-key');
+            let modelInput = document.getElementById('v-island-onboarding-model');
             cfg.provider = 'custom';
             cfg.endpoint = epInput ? epInput.value.trim() : '';
             cfg.apiFormat = fmtInput ? fmtInput.value : 'openai';
             cfg.apiKey = keyInput ? keyInput.value.trim() : '';
             cfg.model = modelInput ? modelInput.value.trim() : '';
         } else {
-            var p = AI_PROVIDERS[providerId];
-            var keyInput2 = document.getElementById('v-island-onboarding-key');
-            var modelSel2 = document.getElementById('v-island-onboarding-model');
+            let p = AI_PROVIDERS[providerId];
+            let keyInput2 = document.getElementById('v-island-onboarding-key');
+            let modelSel2 = document.getElementById('v-island-onboarding-model');
             cfg.provider = providerId;
             cfg.apiKey = keyInput2 ? keyInput2.value.trim() : '';
             cfg.model = modelSel2 ? modelSel2.value : '';
@@ -2005,12 +2005,12 @@
     // V 岛开关初始化（从 other-settings.js 迁移过来）
     // ========================================================================
     function _initToggle() {
-        var el = document.getElementById('vIsland');
+        let el = document.getElementById('vIsland');
         if (!el) return false;
         if (el._vIslandBound) return true; // 已绑定过，跳过
         el._vIslandBound = true;
         // 恢复保存的状态
-        var saved = localStorage.getItem('vIsland-enabled');
+        let saved = localStorage.getItem('vIsland-enabled');
         if (saved === 'true') {
             el.checked = true;
             document.body.classList.add('v-island-enabled');
@@ -2068,7 +2068,7 @@
 
     // 根据崩溃类型生成给 AI 的修复指令
     function _buildFixInstruction(info) {
-        var base = '游戏「' + (info.versionId || '') + '」启动失败了。失败原因：' + (info.reason || '未知') + '。';
+        let base = '游戏「' + (info.versionId || '') + '」启动失败了。失败原因：' + (info.reason || '未知') + '。';
         switch (info.fixType) {
             case 'memory':
                 return base + '这是内存不足导致的。请帮我修复：进入"设置"页面，找到内存分配（最大内存）设置，把内存调大到 4096MB（如果已经是 4096 就调到 6144MB），保存后告诉我结果。';
@@ -2104,17 +2104,17 @@
         _el.classList.add('v-island--visible', 'v-island--expanded');
         _el.classList.remove('v-island--chat', 'v-island--thinking');
 
-        var sub = _el.querySelector('.v-island__subtitle');
+        let sub = _el.querySelector('.v-island__subtitle');
         if (sub) {
             sub.style.display = '';
             sub.textContent = '检测到可自动修复的问题';
         }
 
-        var detail = _el.querySelector('.v-island__detail');
+        let detail = _el.querySelector('.v-island__detail');
         if (!detail) return;
 
-        var problemText = crashInfo.reason || '游戏启动失败';
-        var fixText = crashInfo.fixDesc || crashInfo.solution || '';
+        let problemText = crashInfo.reason || '游戏启动失败';
+        let fixText = crashInfo.fixDesc || crashInfo.solution || '';
         detail.innerHTML =
             '<div class="v-island__reply">' +
                 '<div class="v-island__reply-a" style="font-size:13px;line-height:1.7;">' +
@@ -2129,8 +2129,8 @@
 
         speak('检测到游戏启动失败，这个问题我可以帮你自动修复，要交给我处理吗？');
 
-        var acceptBtn = detail.querySelector('.v-island__fix-accept');
-        var cancelBtn = detail.querySelector('.v-island__fix-cancel');
+        let acceptBtn = detail.querySelector('.v-island__fix-accept');
+        let cancelBtn = detail.querySelector('.v-island__fix-cancel');
         if (acceptBtn) {
             acceptBtn.onclick = function () {
                 _runAgentTask(_buildFixInstruction(crashInfo));

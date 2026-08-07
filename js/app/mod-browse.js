@@ -140,8 +140,8 @@ async function loadMods() {
             container.innerHTML = '<p class="empty-text">未找到模组</p>';
         } else {
             container.innerHTML = hits.map(function (mod) {
-                var isSelected = modSelectedIds.has(mod.id);
-                var isFav = _favorites.some(function(f) { return f.favs.includes(mod.id); });
+                let isSelected = modSelectedIds.has(mod.id);
+                let isFav = _favorites.some(function(f) { return f.favs.includes(mod.id); });
                 return '<div class="mod-item mod-item-clickable' + (modMultiSelectMode ? ' mod-multiselect-active' : '') + '" onclick="openModDetail(\'' + mod.id + '\', \'' + mod.source + '\')" onmouseenter="preloadModVersions(\'' + mod.id + '\', \'' + mod.source + '\')">' +
                     (modMultiSelectMode ? '<div class="mod-checkbox' + (isSelected ? ' checked' : '') + '" data-mod-id="' + mod.id + '" onclick="event.stopPropagation();toggleModSelect(\'' + mod.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>' : '') +
                     '<div class="mod-icon"><img src="' + escapeHtml(mod.icon || '') + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentElement.classList.add(\'mod-icon--fallback\')"></div>' +

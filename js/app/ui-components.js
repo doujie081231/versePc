@@ -17,7 +17,7 @@ function showToast(message, type = 'info') {
 }
 
 function showModal(id) {
-    var modal = getDOMElement(id);
+    let modal = getDOMElement(id);
     if (!modal) {
         console.error('Modal not found:', id);
         return;
@@ -40,13 +40,13 @@ function showModal(id) {
     });
 
     requestAnimationFrame(function () {
-        var closeBtn = modal.querySelector('.modal-close');
+        let closeBtn = modal.querySelector('.modal-close');
         if (closeBtn) {
             closeBtn.focus();
         }
     });
 
-    var onKeyDown = function (e) {
+    let onKeyDown = function (e) {
         if (e.key === 'Escape') {
             hideModal(id);
         }
@@ -55,7 +55,7 @@ function showModal(id) {
     modal._escCleanup = function () { modal.removeEventListener('keydown', onKeyDown); };
 
     if (!modal.dataset.noCloseOnBackdrop) {
-        var onBackdrop = function (e) {
+        let onBackdrop = function (e) {
             if (e.target === modal) {
                 hideModal(id);
             }
@@ -66,7 +66,7 @@ function showModal(id) {
 }
 
 function hideModal(id) {
-    var modal = getDOMElement(id);
+    let modal = getDOMElement(id);
     if (!modal) return;
 
     modal.setAttribute('data-state', 'closed');
@@ -83,9 +83,9 @@ function hideModal(id) {
     }
 
     setTimeout(function () {
-        var prevId = modal.dataset.previouslyFocused;
+        let prevId = modal.dataset.previouslyFocused;
         if (prevId) {
-            var prevEl = document.getElementById(prevId);
+            let prevEl = document.getElementById(prevId);
             if (prevEl) {
                 try { prevEl.focus(); } catch (e) {}
             }
@@ -124,7 +124,7 @@ function showConfirmDialog(title, message, confirmText, cancelText) {
         // Show modal with animation
         requestAnimationFrame(() => overlay.classList.add('modal-visible'));
 
-        var close = function (result) {
+        let close = function (result) {
             overlay.setAttribute('data-state', 'closed');
             overlay.classList.add('modal-exiting');
             overlay.classList.remove('modal-visible');

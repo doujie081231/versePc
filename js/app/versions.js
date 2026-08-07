@@ -1013,9 +1013,9 @@ async function pollInstallProgress(sessionId) {
       const downloadStatus = data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : data.status === 'cancelled' ? 'failed' : 'downloading';
       const statusMessage = getStageText(data.stage) || data.message || '安装中...';
 
-      var files = [];
+      let files = [];
       if (data.currentFile) {
-        var speedText = data.speed ? formatBytes(data.speed) + '/s' : '';
+        let speedText = data.speed ? formatBytes(data.speed) + '/s' : '';
         files.push({
           name: '当前文件: ' + data.currentFile,
           progress: downloadStatus === 'completed' ? 100 : (data.totalFiles ? Math.round(data.completedFiles / data.totalFiles * 100) : smoothPct),
@@ -1031,7 +1031,7 @@ async function pollInstallProgress(sessionId) {
         });
       }
       if (data.bytesDownloaded > 0 || data.totalBytes > 0) {
-        var dlText = formatBytes(data.bytesDownloaded || 0);
+        let dlText = formatBytes(data.bytesDownloaded || 0);
         if (data.totalBytes) dlText += ' / ' + formatBytes(data.totalBytes);
         files.push({
           name: '下载量: ' + dlText,

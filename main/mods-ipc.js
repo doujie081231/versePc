@@ -296,11 +296,11 @@ function registerModsIPC({ isPathAllowed, loadStore } = {}) {
                 )
             );
             langFiles.sort((a, b) => a.name.localeCompare(b.name));
-            var hasEnUs = false;
-            var hasZhCn = false;
-            var defaultLang = null;
+            let hasEnUs = false;
+            let hasZhCn = false;
+            let defaultLang = null;
             langFiles.forEach(function(e) {
-                var lower = e.name.toLowerCase();
+                let lower = e.name.toLowerCase();
                 if (lower.includes('en_us') || lower.includes('en_gb')) { hasEnUs = true; }
                 if (lower.includes('zh_cn')) { hasZhCn = true; }
                 if (!defaultLang && (lower.includes('en_') || lower === 'en.json' || lower === 'en.lang')) {
