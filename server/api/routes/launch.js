@@ -121,11 +121,20 @@ module.exports = {
 
       // 微软账号令牌刷新流程：MS Token -> XBL Token -> XSTS Token -> MC Access Token
       // 令牌过期前 5 分钟提前刷新，失败时使用旧令牌尝试启动
-      if (account.type === 'microsoft' && account.refreshToken) {
+      if (account.type === 'microsoft') {
         const tokenExpiresAt = account.tokenExpiresAt || 0;
         const now = Date.now();
-        const shouldRefresh = !tokenExpiresAt || now > tokenExpiresAt - 5 * 60 * 1000;
+        // 令牌缺失（空）或已过期（提前5分钟）都必须刷新。若令牌为空还继续用空令牌启动，
+        // 会退化成"离线假令牌"，进正版验证服务器必然报"无效会话"。
+        const hasAccessToken = !!(account.accessToken) && account.accessToken !== '0';
+        const shouldRefresh = !hasAccessToken || !tokenExpiresAt || now > tokenExpiresAt - 5 * 60 * 1000;
         if (shouldRefresh) {
+          if (!account.refreshToken) {
+            // 需要刷新但缺少刷新令牌，无法自动续期，直接提示重新登录而非用空令牌启动
+            global._versepc_launching = false;
+            sendJSON(res, { success: false, error: '此微软账号缺少刷新令牌，请重新登录后再尝试。' });
+            return;
+          }
           try {
             const tokenUrl = `https://login.microsoftonline.com/consumers/oauth2/v2.0/token`;
             const postData = `grant_type=refresh_token&client_id=${ctx.urls.MS_CLIENT_ID}&refresh_token=${encodeURIComponent(account.refreshToken)}&scope=XboxLive.signin+offline_access`;
@@ -196,9 +205,21 @@ module.exports = {
                 }
               }
             } else {
+              // 刷新失败：若连可用的原令牌都没有，继续用空令牌启动必然"无效会话"，
+              // 应明确提示用户重新登录
+              if (!hasAccessToken) {
+                global._versepc_launching = false;
+                sendJSON(res, { success: false, error: `账号令牌已失效（${msTokenResult.error || '刷新失败'}），请重新登录微软账号后再启动。` });
+                return;
+              }
               console.warn(`[Launch] 微软Token刷新失败: ${msTokenResult.error}, 使用旧Token尝试启动`);
             }
           } catch (refreshErr) {
+            if (!hasAccessToken) {
+              global._versepc_launching = false;
+              sendJSON(res, { success: false, error: `账号令牌已失效，请重新登录微软账号后再启动。（${refreshErr.message}）` });
+              return;
+            }
             console.warn(`[Launch] 微软Token刷新异常: ${refreshErr.message}, 使用旧Token尝试启动`);
           }
         }

@@ -686,7 +686,10 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
     // （如 Java 8），导致高版本 Forge 处理器直接崩溃。
     let forgeJavaPath = '';
     try {
-        forgeJavaPath = java.selectJavaForVersion(gameVersion, {}) || '';
+        // 必须传入已解析的 version.json（vj），其中的 javaVersion 字段是 Forge 官方声明的
+        // Java 需求（最权威依据）。不传的话会退化成按版本号硬猜，高版本（如 26.1.2）会
+        // 被误判为只需 Java 21，而实际需要 Java 25，导致处理器崩溃。
+        forgeJavaPath = java.selectJavaForVersion(gameVersion, {}, vj) || '';
     } catch (_) {}
     if (forgeJavaPath && !fs.existsSync(forgeJavaPath)) forgeJavaPath = '';
 
@@ -696,19 +699,26 @@ async function installForge(gameVersion, forgeVersion, onProgress = null, mirror
         // 自动下载一个匹配该游戏版本的官方 Java 运行时。
         let requiredMajor = 0;
         try {
-            requiredMajor = java.getRequiredJavaVersion(gameVersion);
+            requiredMajor = java.getRequiredJavaVersion(gameVersion, vj);
         } catch (_) {}
         if (!requiredMajor) {
             const mcMajor = parseInt(gameVersion.split('.')[0], 10);
             const mcMinor = parseInt(gameVersion.split('.')[1], 10) || 0;
             const mcPatch = parseInt((gameVersion.split('.')[2] || '0').split('-')[0], 10) || 0;
-            if (mcMajor >= 2 || (mcMajor === 1 && (mcMinor > 20 || (mcMinor === 20 && mcPatch >= 5)))) requiredMajor = 21;
+            if (mcMajor >= 2) requiredMajor = 25;
+            else if (mcMajor === 1 && (mcMinor > 20 || (mcMinor === 20 && mcPatch >= 5))) requiredMajor = 21;
             else if (mcMajor === 1 && mcMinor >= 18) requiredMajor = 17;
             else if (mcMajor === 1 && mcMinor === 17) requiredMajor = 16;
             else requiredMajor = 8;
         }
         const majorToComponent = { 8: 'jre-legacy', 16: 'java-runtime-beta', 17: 'java-runtime-beta', 21: 'java-runtime-delta', 25: 'java-runtime-epsilon' };
-        const component = majorToComponent[requiredMajor];
+        let component = majorToComponent[requiredMajor];
+        if (!component) {
+            // 非标准主版本（如 23）时，选择不低于它的下一个可用运行时（如 25），保证满足要求
+            const majors = Object.keys(majorToComponent).map(Number).sort((a, b) => a - b);
+            const next = majors.find((m) => m >= requiredMajor);
+            if (next != null) component = majorToComponent[next];
+        }
         if (component) {
             try {
                 if (onProgress) onProgress(0.3, `未找到合适的 Java，正在自动下载 Java ${requiredMajor}...`);

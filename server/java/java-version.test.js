@@ -181,6 +181,12 @@ test('getJavaVersionRange: 1.21+ 强制 Java 21', () => {
   assert.strictEqual(r.min, 21);
 });
 
+test('getJavaVersionRange: 新版本号体系 26.x 强制 Java 25', () => {
+  const r = getJavaVersionRange('26.1.2', { inheritsFrom: '26.1.2', libraries: [] });
+  assert.strictEqual(r.min, 25);
+  assert.strictEqual(r.source, 'mc-version');
+});
+
 test('getJavaVersionRange: 1.18 - 1.20.4 强制 Java 17', () => {
   const r1 = getJavaVersionRange('1.18', { inheritsFrom: '1.18', libraries: [] });
   const r2 = getJavaVersionRange('1.20.4', { inheritsFrom: '1.20.4', libraries: [] });

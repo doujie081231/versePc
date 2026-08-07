@@ -175,7 +175,12 @@ function getJavaVersionRange(versionId, versionJson = null) {
 
   if (ver) {
     // 1.20.5+：Java 21+
-    if (ver.major >= 2 || (ver.major === 1 && ver.minor > 20) || (ver.major === 1 && ver.minor === 20 && ver.patch >= 5)) {
+    if (ver.major >= 2) {
+      // 新版本号体系（如 26.1.2）：需要 Java 25+（Java 25 为长期支持版本）
+      result.min = Math.max(result.min, 25);
+      result.source = 'mc-version';
+    } else if (ver.major === 1 && (ver.minor > 20 || (ver.minor === 20 && ver.patch >= 5))) {
+      // 1.20.5+ / 1.21.x：Java 21+
       result.min = Math.max(result.min, 21);
       result.source = 'mc-version';
     }

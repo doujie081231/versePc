@@ -5,7 +5,7 @@
  *   Forge / NeoForge 核心库检查逻辑位于 ./forge.js。
  */
 
-const { fs, path, execSync, ctx, utils, versions, java } = require('./_shared');
+const { fs, path, ctx, utils, versions, java } = require('./_shared');
 const forgeCore = require('./forge');
 
 /**
@@ -81,18 +81,13 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
       result.java.message = `未找到Java运行环境（需要 ${rangeDesc}），请前往 Java 管理页面安装或配置`;
     }
   } else {
-    // 找到 Java：执行 -version 获取实际版本号并校验范围
+    // 找到 Java：复用 getJavaVersionInfo 获取实际版本号并校验范围
+    // 该函数已处理 java -version 非零退出码的情况，可从 stderr 中解析版本
     result.java.path = javaPath;
-    try {
-      const verOutput = execSync(`"${javaPath}" -version 2>&1`, { encoding: 'utf8', timeout: 5000 });
-      const verMatch = verOutput.match(/version "([^"]+)"/) || verOutput.match(/version (\S+)/);
-      result.java.version = verMatch ? verMatch[1] : 'unknown';
-      // 主版本号：1.x 取次段，否则取首段
-      const majorStr = result.java.version.startsWith('1.')
-        ? result.java.version.split('.')[1]
-        : result.java.version.split('.')[0];
-      const majorVer = parseInt(majorStr, 10);
-
+    const info = java.getJavaVersionInfo(javaPath);
+    if (info.major > 0) {
+      result.java.version = info.version;
+      const majorVer = info.major;
       const maxJavaVer = range.max;
       if (majorVer >= requiredJavaVer && majorVer <= maxJavaVer) {
         result.java.ok = true;
@@ -105,10 +100,10 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
         result.java.message = `Java ${result.java.version} 不满足要求(需要 ${rangeDesc})，请在版本设置中更换Java或使用文件修复功能自动安装`;
         result.java.warning = true;
       }
-    } catch (e) {
+    } else {
       result.java.ok = false;
-      result.java.message = '无法检测Java版本';
-      console.error(`[DepCheck] 检测Java版本失败:`, e.message);
+      result.java.message = `无法检测Java版本（路径: ${javaPath}），请确认该 Java 可执行文件未被损坏或删除`;
+      console.error(`[DepCheck] 检测Java版本失败: 无法从 ${javaPath} 获取版本信息`);
     }
   }
 

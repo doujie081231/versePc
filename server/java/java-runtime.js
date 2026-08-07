@@ -188,7 +188,11 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
     }
   }
 
-  const suitable = candidates.filter((j) => j.majorVersion >= requiredVersion && j.majorVersion <= maxVersion);
+  const suitable = candidates.filter((j) =>
+    j.majorVersion >= requiredVersion &&
+    j.majorVersion <= maxVersion &&
+    !j.path.toLowerCase().endsWith('javaw.exe')
+  );
 
   if (suitable.length === 0) {
     // 候选全空时的备用检测：where java、注册表、常见安装路径深度扫描
@@ -198,7 +202,7 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
       const whereLines = whereOut.split(/\r?\n/).filter((l) => l.trim());
       for (const line of whereLines) {
         const trimmed = line.trim();
-        if (trimmed && fs.existsSync(trimmed)) {
+        if (trimmed && fs.existsSync(trimmed) && !trimmed.toLowerCase().endsWith('javaw.exe')) {
           const info = getJavaVersionInfo(trimmed);
           if (info.major >= requiredVersion && info.major <= maxVersion) {
             return trimmed;
@@ -313,9 +317,16 @@ function selectJavaForVersion(versionId, settings, versionJson = null, externalV
     return a.majorVersion - b.majorVersion;
   });
 
-  const chosen = suitable[0];
+  // 最终返回前执行一次 java -version 验证，避免 release 文件可读但实际可执行文件损坏/被删
+  // 某些 Java 发行版 -version 会返回非零退出码，getJavaVersionInfo 已兼容从 stderr 解析
+  for (const candidate of suitable) {
+    const info = getJavaVersionInfo(candidate.path);
+    if (info.major >= requiredVersion && info.major <= maxVersion) {
+      return candidate.path;
+    }
+  }
 
-  return chosen.path;
+  return null;
 }
 
 /* 依赖检查缓存失效 */

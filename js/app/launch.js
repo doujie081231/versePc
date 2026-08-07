@@ -59,13 +59,57 @@ async function handleLaunch() {
       const maxVer = depCheck.java.maxVersion;
       const rangeDesc = maxVer && maxVer < 999 ? `${requiredVer}~${maxVer}` : `${requiredVer}+`;
       const serverMsg = depCheck.java.message || '';
-      setLaunchStep('java-check', 'error', `未找到 Java ${rangeDesc}`);
-      const detailMsg = serverMsg || `未找到合适的Java运行环境（需要 Java ${rangeDesc}）`;
-      showLaunchError(`${detailMsg}<br><a href="#" onclick="event.preventDefault();closeLaunchModal();navigateToPage('java')" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往 Java 管理页面 →</a>`);
-      launchBtn.disabled = false;
-      homeLaunchBtn.disabled = false;
-      window._versepc_launching = false;
-      return;
+
+      // 未找到合适 Java 时，先尝试自动下载安装
+      let autoInstallOk = false;
+      try {
+        setLaunchStep('java-check', 'running', `未找到 Java ${rangeDesc}，正在自动下载...`);
+        const installResult = await API.autoInstallJava(requiredVer);
+        if (installResult && installResult.success && installResult.sessionId) {
+          // 轮询下载状态直到完成或失败（最多等 10 分钟）
+          const sessionId = installResult.sessionId;
+          let pollCount = 0;
+          const maxPoll = 600;
+          while (pollCount < maxPoll) {
+            await new Promise(r => setTimeout(r, 1000));
+            const status = await API.getJavaInstallStatus(sessionId);
+            pollCount++;
+            if (status.status === 'completed') {
+              setLaunchStep('java-check', 'success', `Java ${requiredVer} 已自动安装`);
+              autoInstallOk = true;
+              break;
+            } else if (status.status === 'failed') {
+              console.warn('[Launch] 自动安装 Java 失败:', status.message);
+              break;
+            } else if (status.status === 'downloading') {
+              setLaunchStep('java-check', 'running', status.message || `正在下载 Java ${requiredVer}... ${status.progress || 0}%`);
+            }
+          }
+        }
+      } catch (installErr) {
+        console.warn('[Launch] 自动安装 Java 请求失败:', installErr.message || installErr);
+      }
+
+      if (autoInstallOk) {
+        // 下载成功，重新检测 Java
+        try {
+          const recheck = await API.launchCheck(versionId, externalVersionDir);
+          if (recheck.java && recheck.java.ok) {
+            depCheck.java = recheck.java;
+          }
+        } catch (_) {}
+      }
+
+      // 仍然失败，显示错误（纯文本，不带 HTML，按钮由 showLaunchError 的 details 控制）
+      if (!depCheck.java || !depCheck.java.ok) {
+        setLaunchStep('java-check', 'error', `未找到 Java ${rangeDesc}`);
+        const detailMsg = serverMsg || `未找到合适的 Java 运行环境（需要 Java ${rangeDesc}）`;
+        showLaunchError(detailMsg, { javaError: true });
+        launchBtn.disabled = false;
+        homeLaunchBtn.disabled = false;
+        window._versepc_launching = false;
+        return;
+      }
     }
     
     setLaunchStep('java-check', 'success', depCheck.java.message || `Java ${depCheck.java.version} ✓`);
@@ -736,10 +780,14 @@ function showLaunchError(msg, details = null) {
   const errorSection = document.getElementById('launch-error-section');
   const errorMsg = document.getElementById('launch-error-msg');
   const repairGuide = document.getElementById('launch-repair-guide');
+  const javaBtn = document.getElementById('launch-java-btn');
   if (errorSection) errorSection.style.display = 'flex';
   if (repairGuide) {
     repairGuide.style.display = 'flex';
     repairGuide.dataset.versionId = (details && details.versionId) || currentSettingsVersionId || (launchVersionCustomSelect ? launchVersionCustomSelect.getValue() : '');
+  }
+  if (javaBtn) {
+    javaBtn.style.display = (details && details.javaError) ? 'inline-block' : 'none';
   }
 
   let fullMsg = msg || '未知错误';
@@ -767,8 +815,10 @@ function showLaunchError(msg, details = null) {
 function hideLaunchError() {
   const errorSection = document.getElementById('launch-error-section');
   const repairGuide = document.getElementById('launch-repair-guide');
+  const javaBtn = document.getElementById('launch-java-btn');
   if (errorSection) errorSection.style.display = 'none';
   if (repairGuide) repairGuide.style.display = 'none';
+  if (javaBtn) javaBtn.style.display = 'none';
 
   const statusEl = document.getElementById('launch-splash-status');
   if (statusEl) statusEl.style.color = '';

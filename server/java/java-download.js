@@ -643,7 +643,7 @@ async function downloadJavaRuntime(component, onProgress, mirrorIndex = 0) {
 /* 自动安装 Java */
 
 /**
- * 自动检测并安装满足需求的 Java：先扫本地，未找到则提示手动安装
+ * 自动检测并安装满足需求的 Java：先扫本地，未找到则自动下载安装
  * @param {number} [requiredVersion=17] - 所需的最低 Java 主版本号
  * @returns {Promise<{installed: boolean, javaPath?: string, version?: string, majorVersion?: number, needManual?: boolean, message?: string, sessionId?: string}>}
  */
@@ -658,18 +658,66 @@ async function autoInstallJava(requiredVersion = 17) {
     return { installed: false, javaPath: suitable.path, version: suitable.version, majorVersion: suitable.majorVersion };
   }
 
-  // 未找到合适 Java：创建会话提示用户手动安装
+  // 未找到合适 Java：自动启动下载安装
   const sessionId = `java-auto-${Date.now()}`;
+  const sessionFile = path.join(ctx.dirs.DATA_DIR, `java-download-${sessionId}.json`);
+
   ctx.sessions.javaInstallSessions.set(sessionId, {
-    status: 'need_manual',
+    status: 'downloading',
     progress: 0,
-    message: `未找到合适的Java运行环境（需要 Java ${requiredVersion}），请在设置中手动安装或配置Java路径`,
+    message: `正在自动下载 Java ${requiredVersion}...`,
     component: '',
     source: '',
-    speed: 0
+    speed: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    lastActivity: Date.now()
   });
 
-  return { installed: false, needManual: true, message: `未找到合适的Java运行环境（需要 Java ${requiredVersion}），请在设置中手动安装或配置Java路径`, sessionId };
+  // 启动异步下载，并通过轮询状态文件把进度同步到 javaInstallSessions
+  downloadJavaAsync(requiredVersion, sessionId, sessionFile, 0, null).then(() => {
+    const s = ctx.sessions.javaInstallSessions.get(sessionId);
+    if (s) {
+      s.status = 'completed';
+      s.progress = 100;
+      s.message = `Java ${requiredVersion} 安装成功`;
+      s.lastActivity = Date.now();
+    }
+  }).catch((err) => {
+    const s = ctx.sessions.javaInstallSessions.get(sessionId);
+    if (s) {
+      s.status = 'failed';
+      s.message = `安装失败: ${err.message}`;
+      s.lastActivity = Date.now();
+    }
+  });
+
+  const pollInterval = setInterval(() => {
+    try {
+      if (!fs.existsSync(sessionFile)) return;
+      const data = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+      const s = ctx.sessions.javaInstallSessions.get(sessionId);
+      if (s && data) {
+        const fileStatus = data.status;
+        s.status = fileStatus === 'completed' ? 'completed' : (fileStatus === 'error' || fileStatus === 'cancelled' ? 'failed' : 'downloading');
+        s.progress = data.progress || 0;
+        s.message = data.message || '';
+        s.speed = data.speed || 0;
+        s.downloadedBytes = data.downloadedBytes || 0;
+        s.totalBytes = data.totalBytes || 0;
+        s.lastActivity = Date.now();
+        if (s.status === 'completed' || s.status === 'failed') {
+          clearInterval(pollInterval);
+          try { fs.unlinkSync(sessionFile); } catch (_) {}
+        }
+      }
+    } catch (e) {}
+  }, 500);
+
+  // 5 分钟后强制清理轮询器，避免泄漏
+  setTimeout(() => { clearInterval(pollInterval); try { fs.unlinkSync(sessionFile); } catch (_) {} }, 5 * 60 * 1000);
+
+  return { installed: false, needManual: false, message: `正在自动下载 Java ${requiredVersion}...`, sessionId };
 }
 
 module.exports = {

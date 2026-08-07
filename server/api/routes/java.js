@@ -537,7 +537,7 @@ module.exports = {
       });
       sendJSON(res, { success: true, sessionId: aiSessionId });
 
-      // 异步检测：优先复用已安装的合适 Java，否则提示手动安装
+      // 异步检测：优先复用已安装的合适 Java，否则自动下载安装
       (async () => {
         try {
           const systemJava = java.detectSystemJava();
@@ -557,12 +557,57 @@ module.exports = {
             return;
           }
 
+          // 未找到：自动下载安装
+          const sessionFile = path.join(ctx.dirs.DATA_DIR, `java-download-${aiSessionId}.json`);
           const s = ctx.sessions.javaInstallSessions.get(aiSessionId);
           if (s) {
-            s.status = 'need_manual';
-            s.progress = 0;
-            s.message = `未找到合适的Java运行环境（需要 Java ${requiredVersion}），请在设置中手动安装或配置Java路径`;
+            s.status = 'downloading';
+            s.message = `正在自动下载 Java ${requiredVersion}...`;
+            s.lastActivity = Date.now();
           }
+
+          java.downloadJavaAsync(requiredVersion, aiSessionId, sessionFile, 0, null).then(() => {
+            const fs2 = ctx.sessions.javaInstallSessions.get(aiSessionId);
+            if (fs2) {
+              fs2.status = 'completed';
+              fs2.progress = 100;
+              fs2.message = `Java ${requiredVersion} 安装成功`;
+              fs2.lastActivity = Date.now();
+            }
+          }).catch((err) => {
+            const fs2 = ctx.sessions.javaInstallSessions.get(aiSessionId);
+            if (fs2) {
+              fs2.status = 'failed';
+              fs2.message = `安装失败: ${err.message}`;
+              fs2.lastActivity = Date.now();
+            }
+          });
+
+          // 轮询状态文件，同步进度到 javaInstallSessions
+          const pollInterval = setInterval(() => {
+            try {
+              if (!fs.existsSync(sessionFile)) return;
+              const data = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+              const fs2 = ctx.sessions.javaInstallSessions.get(aiSessionId);
+              if (fs2 && data) {
+                const fileStatus = data.status;
+                fs2.status = fileStatus === 'completed' ? 'completed' : (fileStatus === 'error' || fileStatus === 'cancelled' ? 'failed' : 'downloading');
+                fs2.progress = data.progress || 0;
+                fs2.message = data.message || '';
+                fs2.speed = data.speed || 0;
+                fs2.downloadedBytes = data.downloadedBytes || 0;
+                fs2.totalBytes = data.totalBytes || 0;
+                fs2.lastActivity = Date.now();
+                if (fs2.status === 'completed' || fs2.status === 'failed') {
+                  clearInterval(pollInterval);
+                  try { fs.unlinkSync(sessionFile); } catch (_) {}
+                }
+              }
+            } catch (e) {}
+          }, 500);
+
+          // 5 分钟后强制清理
+          setTimeout(() => { clearInterval(pollInterval); try { fs.unlinkSync(sessionFile); } catch (_) {} }, 5 * 60 * 1000);
         } catch (e) {
           const errSession = ctx.sessions.javaInstallSessions.get(aiSessionId);
           if (errSession) {
