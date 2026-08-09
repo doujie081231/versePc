@@ -1,13 +1,13 @@
 {
-  "version": "1.3.15",
-  "releaseName": "v1.3.15",
-  "releaseDate": "2026-08-06",
-  "releaseNotes": "修复:\n- 修复高版本游戏（如 26.1.2）启动时误报\"无法检测Java版本\"的问题，即使 Java 管理页面已检测到 Java 25\n- 修复 Java 版本检测在 java -version 返回非零退出码时误判失败的问题，现可从标准错误中正确解析版本\n- 修复选中损坏或无 bin 目录的 Java（如 javaw.exe）导致启动失败的问题",
+  "version": "1.3.16",
+  "releaseName": "v1.3.16",
+  "releaseDate": "2026-08-10",
+  "releaseNotes": "新增:\n- 新增赞助订单号验证功能，支持输入真实赞助订单号解锁恐龙彩蛋小游戏\n- 恐龙小游戏界面文本支持中文显示\n优化:\n- 优化赞助者卡片UI，移除恐龙emoji与深蓝样式，右上角添加实验标签\n修复:\n- 修复恐龙游戏返回键点击无反应的问题\n- 修复Forge安装、Java检测、整合包下载等多项问题",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.15/VersePC-Setup-1.3.15.exe",
-      "size": 146997384,
-      "sha256": "581dd2e44c68d686cdb8af022bf52a9cda688c42ff8143447dd0159a595d9696"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.16/VersePC-Setup-1.3.16.exe",
+      "size": 147042150,
+      "sha256": "4d5fb2da930521a2289d1362638a110c3bf70ada410c97b22b20cb2a5d6d9df4"
     }
   }
 }
