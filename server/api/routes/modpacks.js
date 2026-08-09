@@ -25,9 +25,10 @@ module.exports = {
             const importFilePath = importData.filePath;
             const targetVersion = importData.targetVersion || '';
             const targetFolder = importData.targetFolder || '';
+            const iconUrl = importData.iconUrl || '';
             if (!importFilePath) { sendError(res, 'Missing filePath', 400); return; }
             try {
-                const result = await modpack.importModpackFromPath(importFilePath, null, targetVersion, null, targetFolder);
+                const result = await modpack.importModpackFromPath(importFilePath, null, targetVersion, null, targetFolder, iconUrl);
                 sendJSON(res, result);
             } catch (e) {
                 sendJSON(res, { success: false, error: e.message });

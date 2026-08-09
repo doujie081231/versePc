@@ -295,7 +295,13 @@ document.addEventListener('drop', (e) => {
               let filesMapped = data.files ? data.files.map(function (f) { return { name: f.name || f.filename || f.n || '', status: f.status || f.s || 'pending', progress: f.progress || f.p || 0, speed: f.speed || f.sp || 0 }; }) : [];
               DynamicIsland.update({ progress: pct, status: 'downloading', message: stageText, name: name || '整合包导入', speed: data.speed || 0, files: filesMapped, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
             } else if (typeof dlManager !== 'undefined') {
-              dlManager.update(taskId, { progress: pct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' });
+              let filesMapped = null;
+              if (data.files && data.files.length > 0) {
+                filesMapped = data.files.map(function (f) { return { name: f.name || f.filename || f.n || '', status: f.status || f.s || 'pending', progress: f.progress || f.p || 0, speed: f.speed || f.sp || 0 }; });
+              }
+              let u = { progress: pct, status: 'downloading', message: stageText, stageHistory: data.stageHistory || [], currentFile: data.currentFile || '' };
+              if (filesMapped) u.files = filesMapped;
+              dlManager.update(taskId, u);
             }
           }
           window.electronAPI.onImportProgress(function (data) {

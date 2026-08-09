@@ -874,6 +874,7 @@ module.exports = {
   verifyFileSha1,
   verifyFileSha1Sync,
   applyImageMirror,
+  normalizeImageProxyUrl,
   fetchImageBuffer
 };
 
@@ -894,6 +895,17 @@ function applyImageMirror(url) {
     if (url.startsWith(prefix)) {
       return '/api/img-proxy?url=' + encodeURIComponent(url);
     }
+  }
+  return url;
+}
+
+/* 把代理地址还原为真实图片 URL。
+   新版启动器下载整合包时可能把 /api/img-proxy?url=... 这类代理路径存进 pack-info.json，
+   后端下载图片时无法请求相对路径，这里解码回原始 URL，兼容旧数据。 */
+function normalizeImageProxyUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (url.startsWith('/api/img-proxy?url=')) {
+    try { return decodeURIComponent(url.slice('/api/img-proxy?url='.length)); } catch (_) { return url; }
   }
   return url;
 }

@@ -50,6 +50,9 @@ async function loadSettings() {
         const legacyThemes = ['blue', 'purple', 'green', 'orange', 'red', 'pink', 'teal', 'cyan', 'amber'];
         if (legacyThemes.includes(savedTheme)) savedTheme = 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
+        // 与 switchTheme/init-setup 保持一致：同步设置 dark/light 标记，确保深色覆盖规则生效
+        document.documentElement.classList.toggle('dark-theme', savedTheme === 'dark' || savedTheme === 'custom');
+        document.documentElement.classList.toggle('light-theme', savedTheme === 'light');
         document.querySelectorAll('.theme-option').forEach(btn => {
             btn.classList.toggle('active', btn.getAttribute('data-theme') === savedTheme);
         });

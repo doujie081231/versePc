@@ -103,6 +103,7 @@ function registerAllRoutes() {
         './routes/authlib',
         './routes/download',
         './routes/misc',
+        './routes/sponsor',
     ];
 
     for (const modPath of routeModules) {

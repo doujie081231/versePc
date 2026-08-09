@@ -341,6 +341,18 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
           }
         }
       }
+      if (nativePath && fs.existsSync(nativePath) && nativePath.endsWith('.jar') && !utils.isJarIntact(nativePath)) {
+        // 文件存在但 JAR 结构损坏：视为缺失，触发修复下载重下
+        result.natives.missing.push({
+          type: 'native',
+          url: lib.downloads?.artifact?.url || '',
+          path: nativePath,
+          sha1: lib.downloads?.artifact?.sha1 || '',
+          size: lib.downloads?.artifact?.size || 0,
+          name: lib.name
+        });
+        continue;
+      }
       if (!nativePath || !fs.existsSync(nativePath)) {
         // 文件缺失：构造下载 URL
         const ngroupMaven = nameParts[0].replace(/\./g, '/');
@@ -505,7 +517,17 @@ async function checkDependencies(versionId, settings, externalVersionDir = null)
             if (fs.existsSync(extNativePath)) nativePath = extNativePath;
           }
         }
-        if (!fs.existsSync(nativePath)) {
+        if (fs.existsSync(nativePath) && nativePath.endsWith('.jar') && !utils.isJarIntact(nativePath)) {
+          // 文件存在但 JAR 结构损坏：视为缺失，触发修复下载重下
+          result.natives.missing.push({
+            type: 'native',
+            url: nativeDownload.url,
+            path: nativePath,
+            sha1: nativeDownload.sha1,
+            size: nativeDownload.size,
+            name: `${lib.name} (${classifier})`
+          });
+        } else if (!fs.existsSync(nativePath)) {
           result.natives.missing.push({
             type: 'native',
             url: nativeDownload.url,

@@ -520,8 +520,8 @@ const API = {
     getResourceDetail: (projectId) => apiGet('/api/resources/detail', { projectId }),
     getResourceVersions: (projectId, loader = '', gameVersion = '') =>
         apiGet('/api/resources/versions', { projectId, loader, gameVersion }),
-    downloadResource: (versionId, projectId, projectType = 'mod', targetVersionId = '', savePath = '', customName = '', source = 'modrinth') =>
-        apiPost('/api/resources/download', { versionId, projectId, projectType, targetVersionId, savePath, customName, source }, 120000),
+    downloadResource: (versionId, projectId, projectType = 'mod', targetVersionId = '', savePath = '', customName = '', source = 'modrinth', icon = '') =>
+        apiPost('/api/resources/download', { versionId, projectId, projectType, targetVersionId, savePath, customName, source, icon }, 120000),
 
     // === 局域网联机 (LAN) ===
     lanGetMyIP: () => apiGet('/api/lan/my-ip'),

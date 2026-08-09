@@ -1347,7 +1347,8 @@ module.exports = {
               // 优先用 pack-info.json 中记录的图标 URL 直接下载（下载整合包时已保存）
               let iconUrl = '';
               if (packInfo.iconUrl) {
-                iconUrl = packInfo.iconUrl;
+                // 兼容旧数据：若存的是 /api/img-proxy?url=... 代理地址，先还原为真实 URL
+                iconUrl = utils.normalizeImageProxyUrl(packInfo.iconUrl);
               } else {
                 // 无图标 URL 时，用整合包名称搜 Modrinth 获取图标（导入本地整合包的场景）
                 const packName = packInfo.name || cleanId;

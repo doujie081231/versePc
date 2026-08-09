@@ -1,6 +1,6 @@
 {
   "name": "versepc",
-  "version": "1.3.15",
+  "version": "1.3.16",
   "description": "VersePC - Minecraft Launcher",
   "author": {
     "name": "豆杰",
@@ -69,6 +69,7 @@
       "assets/**/*",
       "css/**/*",
       "js/**/*",
+      "dino/**/*",
       "v-island/**/*",
       "img/**/*",
       "images/**/*",

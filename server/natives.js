@@ -323,17 +323,34 @@ function extractNatives(versionJson, versionId, externalVersionDir = null) {
     } catch (e) { console.error(`[Natives] 父版本加载失败: ${e.message}`); break; }
   }
 
-  /* 增量解压：计算 native jar 文件的最新 mtime */
-  let maxJarMtime = 0;
-  for (const jarPath of nativeJars) {
-    try {
-      const stat = fs.statSync(jarPath);
-      if (stat.mtimeMs > maxJarMtime) maxJarMtime = stat.mtimeMs;
-    } catch (_) {}
+  /* 判断该版本的关键 natives，用于完整性校验（与 launch-game.js 的 checkCriticalNatives 保持一致） */
+  const isLwjgl2 = (versionJson.libraries || []).some((l) => l.name && l.name.startsWith('org.lwjgl.lwjgl:'));
+  let criticalNativesList;
+  if (isLwjgl2) {
+    criticalNativesList = ['lwjgl.dll', 'lwjgl64.dll', 'OpenAL32.dll', 'OpenAL64.dll'];
+  } else {
+    criticalNativesList = ['lwjgl.dll', 'lwjgl_opengl.dll', 'glfw.dll', 'lwjgl_stb.dll', 'lwjgl_tinyfd.dll', 'openal.dll'];
   }
+  const nativeExt = process.platform === 'win32' ? '.dll' : process.platform === 'darwin' ? '.dylib' : '.so';
+  const criticalExists = (n) => {
+    const base = n.replace(/\.dll$/i, '');
+    const target = path.join(nativesDir, process.platform === 'win32' ? n : base + nativeExt);
+    return fs.existsSync(target);
+  };
+  // 关键 natives 是否全部存在（缺失任一即视为需要重新解压）
+  const criticalMissing = criticalNativesList.filter((n) => !criticalExists(n));
 
   /* 检查 nativesDir 是否需要重新解压 */
-  if (fs.existsSync(nativesDir)) {
+  if (fs.existsSync(nativesDir) && criticalMissing.length === 0) {
+    // 关键 natives 齐全时，用 mtime 增量判断是否跳过（保留性能优化）
+    let maxJarMtime = 0;
+    for (const jarPath of nativeJars) {
+      try {
+        const stat = fs.statSync(jarPath);
+        if (stat.mtimeMs > maxJarMtime) maxJarMtime = stat.mtimeMs;
+      } catch (_) {}
+    }
+
     let maxFileMtime = 0;
     try {
       for (const f of fs.readdirSync(nativesDir)) {
@@ -349,6 +366,10 @@ function extractNatives(versionJson, versionId, externalVersionDir = null) {
     }
 
     // Natives 已变化，删除旧目录重新解压
+    try { fs.rmSync(nativesDir, { recursive: true, force: true }); } catch (e) {}
+  } else if (fs.existsSync(nativesDir)) {
+    // 关键 natives 缺失（文件被删/解压中断残留），强制重新解压
+    console.warn(`[Natives] 关键原生库缺失(${criticalMissing.join(', ')}), 强制重新解压`);
     try { fs.rmSync(nativesDir, { recursive: true, force: true }); } catch (e) {}
   }
   fs.mkdirSync(nativesDir, { recursive: true });

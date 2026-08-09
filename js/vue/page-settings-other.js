@@ -10,20 +10,35 @@ const PageSettingsOther = {
             <h2>其他设置</h2>
           </div>
           <div class="settings-container">
-            <details class="card sponsor-card" id="sponsor-card">
+            <details class="card sponsor-card" id="sponsor-card" style="position:relative;">
               <summary class="sponsor-header" style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--text-muted);transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg class="chevron-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="6 9 12 15 18 9"/></svg>
                 <h3 style="margin:0;">赞助者</h3>
                 <span class="sponsor-count" id="sponsor-count"></span>
               </summary>
+              <span class="nav-btn-experimental-badge sponsor-experimental-badge">实验</span>
+              <div class="sponsor-dino-entry">
+                <div class="sponsor-dino-head">
+                  <div>
+                    <div class="sponsor-dino-title">赞助者专属彩蛋</div>
+                    <div class="sponsor-dino-desc">输入赞助订单号，解锁谷歌原版恐龙小游戏</div>
+                  </div>
+                </div>
+                <div class="sponsor-dino-row">
+                  <input type="text" id="sponsor-order-input" class="text-input sponsor-dino-input" placeholder="输入赞助订单号..." onkeydown="if(event.key==='Enter')openSponsorDino()">
+                  <button class="btn btn-primary btn-sm sponsor-dino-btn" onclick="openSponsorDino()">进入小游戏</button>
+                </div>
+              </div>
+              <div class="sponsor-divider"></div>
               <div class="sponsor-search">
+                <svg class="sponsor-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input type="text" id="sponsor-search-input" class="sponsor-search-input" placeholder="搜索赞助者..." oninput="filterSponsors(this.value)">
               </div>
               <div class="sponsor-grid" id="sponsor-list">
               </div>
               <button class="btn btn-ghost btn-sm sponsor-more-btn" id="sponsor-more-btn" onclick="toggleShowMoreSponsors()">
                 展开更多
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-left:4px"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg class="chevron-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-left:4px"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
             </details>
             <div class="card">

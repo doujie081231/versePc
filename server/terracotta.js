@@ -585,6 +585,9 @@ async function getTerracottaState() {
                     ctx.network.terracottaStatus.errorMessage = errInfo.msg;
                     console.error(`[Terracotta] 连接异常: [${errInfo.key}] ${errInfo.msg} (type=${state.type})`);
                 } else {
+                    const unknownMsg = `未知错误 (code=${state.type})`;
+                    ctx.network.terracottaStatus.errorType = '未知错误';
+                    ctx.network.terracottaStatus.errorMessage = unknownMsg;
                     console.error(`[Terracotta] 未知异常 type=${state.type}`);
                 }
             } else if (state.state !== 'exception') {

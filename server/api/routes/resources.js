@@ -165,6 +165,7 @@ module.exports = {
             const rdSavePath = rdData.savePath || '';
             const rdCustomName = rdData.customName || '';
             const rdSource = rdData.source || 'modrinth';
+            const rdFrontIcon = rdData.icon || '';
 
             if (!rdVersionId && !rdProjectId) { sendError(res, 'Missing versionId or projectId', 400); return; }
 
@@ -306,6 +307,11 @@ module.exports = {
                 if (_isModpackFetch && projectInfo) {
                     const _rawIcon = rdSource === 'curseforge' ? (projectInfo.iconUrl || '') : (projectInfo.icon_url || '');
                     if (_rawIcon) _modpackIconUrl = _rawIcon;
+                }
+                // 后端未取到整合包封面时，用前端资源列表里已有的图标兜底（可能是 /api/img-proxy 代理地址，
+                // 导入时 _saveModpackIcon 会先还原为真实 URL 再下载）
+                if (!_modpackIconUrl && _isModpackFetch && rdFrontIcon) {
+                    _modpackIconUrl = rdFrontIcon;
                 }
 
                 const safeName = (fileName || `${rdProjectId}.jar`).replace(/[^a-zA-Z0-9._\-]/g, '_');

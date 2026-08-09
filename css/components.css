@@ -3387,6 +3387,13 @@
     border-top: 1px solid var(--border);
     padding: 10px 16px 12px;
     background: var(--bg-primary);
+    max-height: 300px;
+    overflow-y: auto;
+}
+.dl-detail-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 8px 0;
 }
 .dl-task--expanded .dl-task-detail {
     display: block;

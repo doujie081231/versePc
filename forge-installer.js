@@ -297,12 +297,73 @@ async function downloadMavenArtifact(mavenCoord) {
     return false;
 }
 
+function safeUnlink(filePath, retries = 3, delayMs = 500) {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    let lastErr = null;
+    for (let i = 0; i <= retries; i++) {
+        try {
+            if (i > 0) {
+                const delay = delayMs * i;
+                log(`等待 ${delay}ms 后第 ${i} 次尝试删除: ${filePath}`);
+                const start = Date.now();
+                while (Date.now() - start < delay) { /* busy wait for small delays */ }
+            }
+            fs.unlinkSync(filePath);
+            return null;
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    return lastErr;
+}
+
+function cleanProcessorArtifacts(procInfo, index) {
+    const cleaned = [];
+    const failed = [];
+    // 1. 清理 outputs 中声明的目标文件
+    if (procInfo.outputs) {
+        for (const file of Object.keys(procInfo.outputs)) {
+            const normalized = normalizeVariable(file, variables, side);
+            if (normalized && fs.existsSync(normalized)) {
+                const err = safeUnlink(normalized);
+                if (err) {
+                    failed.push({ file: normalized, err: err.message });
+                } else {
+                    cleaned.push(normalized);
+                }
+            }
+        }
+    }
+    // 2. jarsplitter 会生成/删除 client-*-slim.jar / -extra.jar 等中间文件，
+    //    如果之前安装残留或被系统占用，先强制清理掉，避免后续处理器报 Could not delete file。
+    const knownClientArtifact = variables && variables.MINECRAFT_JAR ? variables.MINECRAFT_JAR.client : '';
+    if (knownClientArtifact) {
+        const clientDir = path.dirname(knownClientArtifact);
+        const clientBase = path.basename(knownClientArtifact, '.jar');
+        const suffixes = ['-slim.jar', '-extra.jar', '-sliced.jar'];
+        for (const suffix of suffixes) {
+            const artifactPath = path.join(clientDir, `${clientBase}${suffix}`);
+            if (fs.existsSync(artifactPath)) {
+                const err = safeUnlink(artifactPath);
+                if (err) failed.push({ file: artifactPath, err: err.message });
+                else cleaned.push(artifactPath);
+            }
+        }
+    }
+    if (cleaned.length) log(`[P${index + 1}] 清理旧文件: ${cleaned.length} 个`);
+    if (failed.length) log(`[P${index + 1}] 清理旧文件失败（非致命）: ${failed.map(f => `${f.file} (${f.err})`).join(', ')}`);
+    return failed;
+}
+
 async function runProcessor(procInfo, index) {
     const { jar, mainClass, classpath: cpNames, args: procArgs } = procInfo;
     log(`\n--- Processor ${index + 1}/${processorsInfo.length}: ${jar} ---`);
     log(`Main-Class: ${mainClass}`);
 
     send({ type: 'progress', percent: 0.4 + (index / processorsInfo.length) * 0.5, message: `准备处理器 ${index + 1}/${processorsInfo.length}...` });
+
+    // 运行前先清理可能残留的旧输出/中间文件，防止文件占用导致 jarsplitter 删除失败。
+    const cleanupFailures = cleanProcessorArtifacts(procInfo, index);
 
     let jarPath = resolveMavenPath(jar);
     if (!jarPath || !fs.existsSync(jarPath)) {
@@ -462,6 +523,28 @@ async function runProcessor(procInfo, index) {
 }
 
 async function main() {
+    // 运行处理器前，先清理版本目录中上次安装可能残留的旧输出文件。
+    // 例如 jarsplitter 生成的 client-extra.jar / client-slim.jar 若已存在且被占用，
+    // 处理器覆盖时会报 "Could not delete file"，导致 Forge 安装失败。
+    // 因此先按所有处理器的 outputs 声明逐个删除，确保目录干净。
+    log(`\n=== Cleanup phase: clearing stale processor outputs ===`);
+    let cleanedCount = 0;
+    for (let i = 0; i < processorsInfo.length; i++) {
+        const proc = processorsInfo[i];
+        if (!proc.outputs) continue;
+        for (const file of Object.keys(proc.outputs)) {
+            try {
+                const normalized = normalizeVariable(file, variables, side);
+                if (normalized && fs.existsSync(normalized)) {
+                    fs.unlinkSync(normalized);
+                    log(`Cleaned stale output: ${normalized}`);
+                    cleanedCount++;
+                }
+            } catch (_) {}
+        }
+    }
+    log(`Cleanup done, removed ${cleanedCount} stale output file(s)`);
+
     // Pre-download ALL dependencies for ALL processors before running any of them.
     // This avoids repeated network round-trips between processor runs.
     send({ type: 'progress', percent: 0.35, message: `预下载所有依赖 (${processorsInfo.length} 个处理器)...` });

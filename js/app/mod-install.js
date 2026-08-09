@@ -94,7 +94,7 @@ async function quickInstallResourceVersion(projectId, type, versionId) {
     }
     localStorage.setItem('lastResourceSavePath_' + type, savePath);
     showToast(`正在安装${typeName}...`, 'info');
-    const result = await API.downloadResource(versionId, projectId, type, '', savePath, '', currentModDetailSource);
+    const result = await API.downloadResource(versionId, projectId, type, '', savePath, '', currentModDetailSource, currentModDetailData?.icon || '');
     if (result.success) {
       showModDownloadModal(result.fileName, result.sessionId);
     } else {
@@ -223,7 +223,7 @@ function showModpackNameModal(defaultName, projectId, versionId) {
 async function _doInstallModpack(projectId, versionId, customName) {
   showToast('正在下载整合包，将创建新版本...', 'info');
   try {
-    const result = await API.downloadResource(versionId, projectId, 'modpack', '', '', customName, currentModDetailSource);
+    const result = await API.downloadResource(versionId, projectId, 'modpack', '', '', customName, currentModDetailSource, currentModDetailData?.icon || '');
     if (result.success) {
       showModpackInstallModal(result.fileName, result.sessionId);
     } else {
@@ -251,10 +251,15 @@ function showModpackInstallModal(fileName, sessionId) {
   const poll = async () => {
     try {
       const data = await API.getModDownloadStatus(sessionId);
+      // 后端在整合包导入阶段返回的 files 是缩写字段 {n,s,p,sp,e}（见 importer.js），
+      // 在纯下载阶段返回完整字段 {name,status,progress,size}。这里统一兼容两种格式，
+      // 否则详情里每个模组文件既取不到名字、也取不到进度，导致展开后"没有任务、没有进度条"。
       const files = (data.files || []).map(f => ({
-        name: f.name || f.filename || f.path || '',
-        status: f.status || 'pending',
-        size: f.size ? formatSize(f.size) : ''
+        name: f.name || f.filename || f.path || f.n || '',
+        status: f.status || f.s || 'pending',
+        progress: f.progress || f.p || 0,
+        size: (f.size || f.sz) ? formatSize(f.size || f.sz) : '',
+        speed: f.speed || f.sp || 0
       }));
       const displayStatus = data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : data.status === 'cancelled' ? 'failed' : 'downloading';
       const displayMessage = data.phase === 'importing' ? '正在安装整合包...' : getDownloadStageText(data);

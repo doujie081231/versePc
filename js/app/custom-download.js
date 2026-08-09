@@ -53,8 +53,10 @@ const dlManager = {
             smoothProgress = data.status === 'completed' ? 100 : Math.min(targetProgress, 100);
         } else if (task.type === 'modpack' && task._smoothProgress !== undefined) {
             const cur = task._smoothProgress || 0;
+            // 总进度只增不减：并行下载阶段结束（如模组 95% → 修复 88%）时，
+            // 若后端回报的进度回退，则保持当前值，避免进度条来回乱跳
             if (targetProgress <= cur || targetProgress <= 0) {
-                smoothProgress = targetProgress;
+                smoothProgress = cur;
             } else {
                 const smoothed = cur * 0.7 + targetProgress * 0.3;
                 smoothProgress = Math.max(cur, Math.min(Math.round(smoothed), 100));
@@ -126,26 +128,23 @@ const dlManager = {
             }
         }
         if (detailEl) {
+            // 详情同时展示阶段历史 + 并行文件（模组）下载明细，每个文件带独立进度条
+            let detailHash = '';
             if (hasStageData) {
-                let stageHash = '';
                 for (let i = 0; i < t.stageHistory.length; i++) {
                     let s = t.stageHistory[i];
-                    stageHash += s.stage + '_' + s.progress + '_' + s.message + ';';
+                    detailHash += s.stage + '_' + s.progress + '_' + s.message + ';';
                 }
-                if (stageHash !== t._lastStageHash) {
-                    t._lastStageHash = stageHash;
-                    detailEl.innerHTML = this.buildStageHistoryHtml(t.stageHistory);
-                }
-            } else if (hasFileData) {
-                let hash = '';
+            }
+            if (hasFileData) {
                 for (let i = 0; i < t.files.length; i++) {
                     let f = t.files[i];
-                    hash += f.name + '_' + f.status + '_' + f.progress + ';';
+                    detailHash += f.name + '_' + f.status + '_' + f.progress + ';';
                 }
-                if (hash !== t._lastFilesHash) {
-                    t._lastFilesHash = hash;
-                    detailEl.innerHTML = this.buildFilesHtml(t.files);
-                }
+            }
+            if (detailHash !== t._lastDetailHash) {
+                t._lastDetailHash = detailHash;
+                detailEl.innerHTML = this.buildDetailHtml(t);
             }
         }
         if (t.status !== 'downloading' && t.status !== 'cancelling') {
@@ -169,6 +168,18 @@ const dlManager = {
             actionsDiv.appendChild(btn);
             taskEl.appendChild(actionsDiv);
         }
+    },
+    buildDetailHtml(t) {
+        // 详情 = 阶段历史（总流程）+ 并行文件（模组）下载明细（各自进度条）
+        let html = '';
+        if (t.stageHistory && t.stageHistory.length > 0) {
+            html += this.buildStageHistoryHtml(t.stageHistory);
+        }
+        if (t.files && t.files.length > 0) {
+            if (html) html += '<div class="dl-detail-sep"></div>';
+            html += this.buildFilesHtml(t.files);
+        }
+        return html;
     },
     buildFilesHtml(files) {
         return files.map(f => {
@@ -220,10 +231,8 @@ const dlManager = {
                     taskEl.appendChild(detailEl);
                 }
             }
-            if (task.type === 'modpack' && task.stageHistory && task.stageHistory.length > 0) {
-                detailEl.innerHTML = this.buildStageHistoryHtml(task.stageHistory);
-            } else if (task.files && task.files.length > 0) {
-                detailEl.innerHTML = this.buildFilesHtml(task.files);
+            if ((task.stageHistory && task.stageHistory.length > 0) || (task.files && task.files.length > 0)) {
+                detailEl.innerHTML = this.buildDetailHtml(task);
             } else if (task.expanded) {
                 detailEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">' + (task.status === 'downloading' ? '等待进度数据...' : '暂无详细信息') + '</div>';
             }
@@ -274,13 +283,7 @@ const dlManager = {
             const expandedClass = t.expanded && isExpandable ? 'dl-task--expanded' : '';
             let detailHtml = '';
             if (isExpandable) {
-                let innerDetail = '';
-                if (t.type === 'modpack' && t.stageHistory && t.stageHistory.length > 0) {
-                    innerDetail = this.buildStageHistoryHtml(t.stageHistory);
-                } else if (t.files && t.files.length > 0) {
-                    innerDetail = this.buildFilesHtml(t.files);
-                }
-                detailHtml = '<div class="dl-task-detail">' + innerDetail + '</div>';
+                detailHtml = '<div class="dl-task-detail">' + this.buildDetailHtml(t) + '</div>';
             }
             let actionsHtml = '';
             if (t.status === 'completed' || t.status === 'failed') {

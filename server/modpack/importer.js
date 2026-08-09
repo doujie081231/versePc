@@ -63,14 +63,18 @@ async function _saveModpackIcon(versionId, iconUrl) {
   const versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
   if (!fs.existsSync(versionDir)) return;
 
+  // 兼容代理地址：若传入的是 /api/img-proxy?url=... 这类路径，先还原为真实图片 URL，
+  // 否则直接 https.get 相对路径会失败，导致图标下载不下来
+  const rawIconUrl = utils.normalizeImageProxyUrl(iconUrl);
+
   // 把图标原始 URL 写入 pack-info.json，供版本图标接口在本地文件缺失时回退使用
   // 必须存原始 URL，不能存 /api/img-proxy 代理路径，否则后续 https.get 无法请求相对路径
   const packInfoPath = path.join(versionDir, 'pack-info.json');
   if (fs.existsSync(packInfoPath)) {
     try {
       const pi = JSON.parse(fs.readFileSync(packInfoPath, 'utf8'));
-      if (!pi.iconUrl || pi.iconUrl !== iconUrl) {
-        pi.iconUrl = iconUrl;
+      if (pi.iconUrl !== rawIconUrl) {
+        pi.iconUrl = rawIconUrl;
         fs.writeFileSync(packInfoPath, JSON.stringify(pi, null, 2));
       }
     } catch (_) {}
@@ -81,7 +85,7 @@ async function _saveModpackIcon(versionId, iconUrl) {
   if (localIcons.some(f => fs.existsSync(path.join(versionDir, f)))) return;
 
   // 使用统一的图片下载函数：直连→重定向→CDN镜像回退，解决国内被墙问题
-  const result = await utils.fetchImageBuffer(iconUrl);
+  const result = await utils.fetchImageBuffer(rawIconUrl);
   if (result && result.buf && result.buf.length > 0) {
     try { fs.writeFileSync(path.join(versionDir, 'icon.png'), result.buf); } catch (_) {}
   }
@@ -100,26 +104,13 @@ async function _importModpackFromPathInner(filePath, onProgress, targetVersion =
             stageHistory.push({ stage, message, progress: pct });
         }
         utils._writeImportLog(`[进度] ${stage} ${Math.round(pct)}% - ${message || ''} ${currentFile ? '(' + currentFile + ')' : ''}`);
-        // files 深拷贝很耗时（200 个对象），仅在文件状态变化时才重新生成
-        // 用 doneCount+inFlight 作为缓存 key，未变化则复用上次快照
         let filesSnapshot = [];
         if (files && files.length > 0) {
-            let cacheKey = '';
-            if (stage === 'mods') {
-                // mods 阶段：用完成数+进行中数作为 key，未变化则复用
-                const doneCount = files.filter(f => f.status === 'completed' || f.status === 'failed').length;
-                const downloadingCount = files.filter(f => f.status === 'downloading').length;
-                cacheKey = `${doneCount}-${downloadingCount}`;
-            } else {
-                cacheKey = `full-${Date.now()}`;
-            }
-            if (cacheKey === _lastFilesKey && _lastFilesSnapshot) {
-                filesSnapshot = _lastFilesSnapshot;
-            } else {
-                filesSnapshot = files.slice(0, Math.min(files.length, 200)).map(f => ({ n: f.name, s: f.status, p: f.progress || 0, e: f.error || '', sp: f.speed || 0 }));
-                _lastFilesSnapshot = filesSnapshot;
-                _lastFilesKey = cacheKey;
-            }
+            // 并行文件（模组）下载：始终重新生成快照，让详情里的每个文件进度条实时更新。
+            // 之前的缓存（完成数+进行中数）导致单个文件 0~100% 的进度变化被吞掉，详情进度条看起来不动。
+            // 上层 createProgressUpdater 已按 500ms 节流调用 progress，这里每次生成开销可控。
+            filesSnapshot = files.slice(0, Math.min(files.length, 200)).map(f => ({ n: f.name, s: f.status, p: f.progress || 0, e: f.error || '', sp: f.speed || 0 }));
+            _lastFilesSnapshot = filesSnapshot;
         }
         const stagesSnapshot = stageHistory.map(s => ({ stage: s.stage, message: s.message, progress: s.progress }));
         if (typeof onProgress === 'function') onProgress({ stage, message, progress: pct, files: filesSnapshot, currentFile: currentFile || '', stageHistory: stagesSnapshot });
@@ -249,6 +240,31 @@ async function _importModpackFromPathInner(filePath, onProgress, targetVersion =
     if (result?.success) {
         ctx.caches._versionsCache = null;
         ctx.caches._versionsCacheTime = 0;
+        // 从整合包压缩包根目录提取图标（pack.png / icon.png / logo.png）到版本目录，
+        // 兼容本地导入且 zip 自带图标的情况（PCL 的做法：安装时把封面图存到版本文件夹）
+        try {
+            const _rootIconDir = path.join(ctx.dirs.VERSIONS_DIR, result.versionId);
+            if (fs.existsSync(_rootIconDir)) {
+                const _rootIconNames = ['pack.png', 'icon.png', 'logo.png'];
+                for (const _entry of zip.getEntries()) {
+                    if (_entry.isDirectory) continue;
+                    const _entryName = _entry.entryName.replace(/\\/g, '/');
+                    if (_rootIconNames.includes(_entryName)) {
+                        const _destIconPath = path.join(_rootIconDir, _entryName);
+                        if (!fs.existsSync(_destIconPath)) {
+                            await fs.promises.writeFile(_destIconPath, _entry.getData());
+                            utils._writeImportLog(`提取整合包图标: ${_entryName}`);
+                        }
+                        break;
+                    }
+                }
+            }
+        } catch (_rootIconErr) {
+            console.warn(`[Modpack] 提取根目录图标失败（非致命）: ${_rootIconErr.message}`);
+        }
+        // 导入成功后清空版本图标缓存，让新保存的整合包封面立即生效，
+        // 否则 24 小时的图标缓存会继续返回导入前缓存的占位方块图标
+        try { if (ctx.caches.VERSION_ICON_CACHE && ctx.caches.VERSION_ICON_CACHE.clear) ctx.caches.VERSION_ICON_CACHE.clear(); } catch (e) {}
         utils._writeImportLog(`========== 导入成功 ==========`);
         utils._writeImportLog(`版本ID: ${result.versionId}, 整合包名: ${result.name}`);
     } else {
