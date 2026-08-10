@@ -76,7 +76,7 @@ async function _importCurseForge(zip, manifestEntry, filePath, progress, targetV
   let versionDir;
 
   if (targetVersion) {
-    const cleanTargetId = targetVersion.replace(/ \[外部\d*\]/, '');
+    const cleanTargetId = targetVersion.replace(/ \[外部\d*\]/, '').replace(/[<>:"\/\\|?*]/g, '_').trim();
     const existingDir = path.join(ctx.dirs.VERSIONS_DIR, cleanTargetId);
     if (fs.existsSync(existingDir)) {
       versionId = cleanTargetId;

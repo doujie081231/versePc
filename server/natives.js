@@ -921,13 +921,20 @@ function buildClasspath(versionJson, versionId, externalVersionDir = null) {
   // versionId 不匹配正则，且与 -DlibraryDirectory 机制冲突）。
 
   if (jarPath && fs.existsSync(jarPath)) {
-    // NeoForge/Forge: 若 classpath 中已存在 patched jar，跳过 mainJar 避免重复
-    // 否则两个 patched jar 同时在 classpath 会触发 JPMS 模块冲突：
-    //   "Modules minecraft and minecraft.client.patched export package ..."
+    // NeoForge 新版 (20.6+/21.x/26.x)：版本目录 jar 即 patched jar（minecraft-client-patched）的副本，
+    // 不能加入 classpath。patched jar 与 universal jar 均由 -DlibraryDirectory +
+    // --fml.neoForgeVersion 让 FML 的 ProductionClientProviderLocator 自动发现并加载。
+    // 若把版本目录 jar 加入 classpath，RequiredSystemFiles 会扫描到它，但 patched jar 用
+    // --no-mod-manifest 构建、不含 NeoForgeMod.class，FML 会把它误判为 DEV（开发）模式，
+    // 报 "Couldn't find NeoForgeMod.class" 与 "The patched Minecraft jar is missing"。
+    const isNewNeoForge = (versionJson.mainClass || '').includes('net.neoforged.fml.startup') ||
+      (versionJson.arguments?.game || []).some((a) => a === '--fml.neoForgeVersion');
     const hasPatched = dedupedClasspath.some((cp) => /minecraft-client-patched|neoforge-[\d.]+-client\.jar|forge-[\d.]+-[\d.]+-client\.jar/.test(path.basename(cp)));
     const isModloader = (versionJson.mainClass || '').includes('bootstraplauncher') ||
       (versionJson.libraries || []).some((l) => (l.name || '').includes('neoforged') || (l.name || '').includes('minecraftforge'));
-    if (hasPatched && isModloader) {
+    if (isNewNeoForge) {
+      console.log(`[Classpath] NeoForge 新版: 跳过版本目录 jar (由 -DlibraryDirectory locator 自动发现): ${path.basename(jarPath)}`);
+    } else if (hasPatched && isModloader) {
       console.log(`[Classpath] NeoForge/Forge: 跳过 mainJar (classpath 已含 patched jar): ${path.basename(jarPath)}`);
     } else {
       dedupedClasspath.push(jarPath);

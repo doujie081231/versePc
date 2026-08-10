@@ -294,7 +294,9 @@ async function _importHmcl(zip, hmclEntry, filePath, progress, targetVersion = '
 
     progress('prepare', `整合包: ${packName}  MC: ${mcVersion}`, 8);
 
-    let versionId = targetVersion ? targetVersion.replace(/ \[外部\d*\]/, '') : _dedupeVersionId(packName);
+    let versionId = targetVersion
+        ? targetVersion.replace(/ \[外部\d*\]/, '').replace(/[<>:"\/\\|?*]/g, '_').trim()
+        : _dedupeVersionId(packName);
     let versionDir = path.join(ctx.dirs.VERSIONS_DIR, versionId);
 
     if (targetVersion) {
@@ -442,7 +444,7 @@ async function _importRawZip(zip, filePath, progress, targetVersion = '', abortS
     let versionDir;
 
     if (targetVersion) {
-        const cleanTargetId = targetVersion.replace(/ \[外部\d*\]/, '');
+        const cleanTargetId = targetVersion.replace(/ \[外部\d*\]/, '').replace(/[<>:"\/\\|?*]/g, '_').trim();
         const existingDir = path.join(ctx.dirs.VERSIONS_DIR, cleanTargetId);
         if (fs.existsSync(existingDir)) {
             versionId = cleanTargetId;

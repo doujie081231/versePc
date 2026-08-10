@@ -1,13 +1,13 @@
 {
-  "version": "1.3.18",
-  "releaseName": "v1.3.18",
+  "version": "1.3.19",
+  "releaseName": "v1.3.19",
   "releaseDate": "2026-08-10",
-  "releaseNotes": "修复:\n- 修复导入NeoForge整合包时安装器偶发执行失败的问题：现在会自动检测并尝试多个Java版本，失败时自动切换重试，安装更稳定\n优化:\n- 优化NeoForge/Forge安装器Java版本匹配逻辑，自动选择最合适的Java",
+  "releaseNotes": "修复:\n- 修复 NeoForge 整合包启动时因 classpath 包含版本目录 jar 导致的 DEV 模式误判问题（The patched Minecraft jar is missing / Couldn't find NeoForgeMod.class）\n- 修复本地 zip 整合包导入时版本名含非法字符（如 \\）导致的路径错误（ENOENT）",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.18/VersePC-Setup-1.3.18.exe",
-      "size": 147128997,
-      "sha256": "E7F43BB32D16E79FE228825DE21DB7DA5DC5DED2C3F7A1703039C0D44030404C"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.19/VersePC-Setup-1.3.19.exe",
+      "size": 147131474,
+      "sha256": "FD07B7711FD00BBC0559000E62E23D93A166AF83F04F33D3D0D496E7C6D703BE"
     }
   }
 }

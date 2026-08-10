@@ -17,11 +17,18 @@ let AdmZip;
 try { AdmZip = require('adm-zip'); } catch (_) {}
 
 // 重复版本名自动去重，避免覆盖已有版本
+// 清理 Windows 路径非法字符与路径分隔符，防止用户输入或整合包名称中的
+// 反斜杠/斜杠被 path.join 误判为分隔符，导致 ENOENT 或目录结构异常。
 function _dedupeVersionId(baseName) {
-    let candidate = baseName;
+    const sanitized = String(baseName || '')
+        .replace(/[<>:"\/\\|?*]/g, '_')
+        .replace(/[\x00-\x1f]/g, '')
+        .trim();
+    let safeBase = sanitized || 'unnamed';
+    let candidate = safeBase;
     let counter = 2;
     while (fs.existsSync(path.join(ctx.dirs.VERSIONS_DIR, candidate))) {
-        candidate = `${baseName} (${counter})`;
+        candidate = `${safeBase} (${counter})`;
         counter++;
         if (counter > 999) break;
     }
