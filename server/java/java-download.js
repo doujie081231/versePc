@@ -11,9 +11,17 @@ const { spawn } = require('child_process');
 const ctx = require('../context');
 const utils = require('../utils');
 const http = require('../http-client');
+const { probeMirrorsParallel } = require('../http-client/mirror');
 const versions = require('../versions');
 const { detectSystemJava, detectBundledJava } = require('./java-detect');
 const { configureJavaEnv } = require('./java-runtime');
+
+// [DEBUG] 调试日志写入文件，便于 CDP 测试时追踪下载源选择与单文件下载
+const _debugLogFile = path.join(os.tmpdir(), 'verse-java-download-debug.log');
+function _dbg(msg) {
+  try { fs.appendFileSync(_debugLogFile, `[${new Date().toISOString()}] ${msg}\n`); } catch (_) {}
+  try { console.log(`[Java][DEBUG] ${msg}`); } catch (_) {}
+}
 
 /* Temurin 镜像 URL */
 
@@ -157,10 +165,12 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
 
   let lastPct = 10;
   try {
+    _dbg(`downloadJavaAsync 开始 majorVersion=${majorVersion} mirrorIndex=${mirrorIndex}`);
     // 优先使用 Mojang 官方 Java 运行时源，失败时回退到下方 Temurin 逻辑
     const mojangComponentMap = { 8: 'jre-legacy', 17: 'java-runtime-beta', 21: 'java-runtime-delta', 25: 'java-runtime-epsilon' };
     const mojangComponent = mojangComponentMap[majorVersion];
     if (mojangComponent) {
+      _dbg(`命中Mojang运行时组件: ${mojangComponent}，走 downloadJavaRuntime`);
       try {
         updateStatus('fetching', 5, '正在获取Mojang官方Java运行时信息...');
         const mjResult = await downloadJavaRuntime(mojangComponent, (p) => {
@@ -351,23 +361,24 @@ async function downloadJavaAsync(majorVersion, sessionId, sessionFile, mirrorInd
       updateStatus('downloading', calcPct(progress), formatProgress(progress), Math.max(_smoothSpeed, speed), progress.bytesDownloaded, progress.totalBytes || totalSize);
     };
 
-    // 分块下载优先；失败时回退到单线程依次尝试所有镜像 + 原始 URL
-    await http.downloadFileChunked(downloadMirrors.length > 0 ? downloadMirrors[0] : downloadUrl, tempFile, { onProgress: onDlProgress, timeout: 600000, retries: 3, mirrors: downloadMirrors.length > 0 ? downloadMirrors : null, abortSignal }).catch(async (err) => {
-      checkAbort('下载已取消');
-      const fallbackUrls = downloadMirrors.length > 0 ? [...downloadMirrors, downloadUrl] : [downloadUrl];
-      let lastErr = err;
-      for (const url of fallbackUrls) {
-        try {
-          checkAbort('下载已取消');
-          await http._dlSingle(url, tempFile, { onProgress: onDlProgress, timeout: 600000, retries: 2, stallTimeout: 30000, abortSignal });
-          return;
-        } catch (e) {
-          console.warn(`[Java] 单线程下载失败: ${e.message}`);
-          lastErr = e;
-        }
+    // [修复 - 2026-08-10] 直接用单流下载，只从选定源依次下载，不再用分块/多源引擎。
+    // 分块引擎会在多个源之间反复切换、进度乱跳、触发重下。改为依次尝试镜像+原始 URL，失败才换下一个。
+    const jdkFallbackUrls = downloadMirrors.length > 0 ? [...downloadMirrors, downloadUrl] : [downloadUrl];
+    _dbg(`Temurin路径 JDK下载URL列表(${jdkFallbackUrls.length}个，仅依次尝试，失败才换下一个): ${jdkFallbackUrls.join(' | ')}`);
+    let jdkLastErr = null;
+    let jdkDownloaded = false;
+    for (const url of jdkFallbackUrls) {
+      try {
+        checkAbort('下载已取消');
+        await http._dlSingle(url, tempFile, { onProgress: onDlProgress, timeout: 600000, retries: 2, stallTimeout: 30000, abortSignal });
+        jdkDownloaded = true;
+        break;
+      } catch (e) {
+        console.warn(`[Java] 单线程下载失败: ${e.message}`);
+        jdkLastErr = e;
       }
-      throw lastErr;
-    });
+    }
+    if (!jdkDownloaded) throw jdkLastErr || new Error('JDK 下载失败');
 
     checkAbort('下载已取消');
     updateStatus('extracting', 85, '正在解压JDK...');
@@ -538,6 +549,23 @@ async function downloadJavaRuntime(component, onProgress, mirrorIndex = 0) {
 
     const manifest = await http.fetchJSON(manifestUrl);
 
+    // [修复 - 2026-08-10] 先对候选源(官方 vs 镜像)并行测速，只选最快的单一源。
+    // 之前把整个镜像 URL 列表丢给 XMCL 引擎做回退，引擎会在多个源之间反复切换，
+    // 且没有先测速选最快源。现在先 probe 一次，后续所有文件只从最快源下载。
+    let useMirror = !!mirror;
+    if (mirror) {
+      const officialManifestUrl = runtime.manifest.url;
+      const mirrorManifestUrl = getJavaMirrorUrl(officialManifestUrl, mirror);
+      if (mirrorManifestUrl !== officialManifestUrl) {
+        try {
+          const probes = await probeMirrorsParallel([mirrorManifestUrl, officialManifestUrl], 4000);
+          const best = probes.find((p) => p.speed > 0);
+          if (best) useMirror = (best.url === mirrorManifestUrl);
+          _dbg(`测速结果(${probes.length}源): ${probes.map(p => `${p.url} speed=${p.speed} ok=${!!p.speed}`).join(' | ')} => 仅从${useMirror ? '镜像' : '官方'}单一源下载`);
+        } catch (_) {}
+      }
+    }
+
     // 阶段 2：解析文件清单，预计算总字节数
     const targetDir = path.join(ctx.dirs.JAVA_DIR, component);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
@@ -561,8 +589,11 @@ async function downloadJavaRuntime(component, onProgress, mirrorIndex = 0) {
       }
     }
 
-    // 阶段 3：并发下载（最多 8 路），通过共享 idx 队列分配任务
-    const CONCURRENT = 8;
+    // 阶段 3：串行下载（单流）。用户反馈"多个源一起下载、进度条乱跳"，
+    // 根因之一是 CONCURRENT=8 并发下载 8 个不同文件，且共享 downloadedBytes
+    // 导致进度互相覆盖乱跳。改为 CONCURRENT=1 完全串行：同一时刻只从一个源
+    // 下载一个文件，进度稳定。
+    const CONCURRENT = 1;
     let idx = 0;
 
     async function downloadNext() {
@@ -577,36 +608,64 @@ async function downloadJavaRuntime(component, onProgress, mirrorIndex = 0) {
         if (fileInfo.downloads && fileInfo.downloads.raw) {
           const download = fileInfo.downloads.raw;
           let downloadUrl = download.url;
-          if (mirror) downloadUrl = getJavaMirrorUrl(downloadUrl, mirror);
+          // 实际使用的源：仅当测速判定镜像更快时才走镜像，否则一律用官方（避免"官方 BMCLAPI"这种误导性标签）
+          const actualSource = (mirror && useMirror) ? mirror.name : 'Mojang官方';
+          if (mirror && useMirror) {
+            downloadUrl = getJavaMirrorUrl(downloadUrl, mirror);
+            _dbg(`[${i}/${totalFiles}] 文件=${filePath} 源=${downloadUrl}（镜像 ${mirror.name}）`);
+          } else {
+            _dbg(`[${i}/${totalFiles}] 文件=${filePath} 源=${downloadUrl}（官方，单一源）`);
+          }
 
-          await http.downloadFile(downloadUrl, destPath, (progress) => {
-            const now = Date.now();
-            const elapsed = now - lastTime;
-            // 累加增量字节用于总进度计算
-            const incrementalBytes = (progress.bytesDownloaded || 0);
-            downloadedBytes += incrementalBytes;
-            // 至少 500ms 才更新速度，避免抖动
-            if (elapsed >= 500) {
-              speed = Math.round((downloadedBytes - lastSpeedBytes) * 1000 / elapsed);
-              lastTime = now;
-              lastSpeedBytes = downloadedBytes;
-            }
-            if (onProgress) {
-              onProgress({
-                file: path.basename(filePath),
-                current: downloadedFiles + 1,
-                total: totalFiles,
-                progress: totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0,
-                downloadedBytes,
-                totalBytes,
-                speed,
-                source: mirror ? mirror.name : 'Mojang官方'
-              });
-            }
-          }, 3, null);
+          // [修复 - 2026-08-10] 改用单流下载，只从选定源下载，避免多源切换/重下。
+          // 同时修正进度累加：记录本文件开始前已完成的字节数，进度=基数+当前文件累计，
+          // 避免重复累加导致进度条乱跳。
+          const fileDownloadBase = downloadedBytes;
+          await http._dlSingle(downloadUrl, destPath, {
+            onProgress: (progress) => {
+              const now = Date.now();
+              const elapsed = now - lastTime;
+              downloadedBytes = fileDownloadBase + (progress.bytesDownloaded || 0);
+              // 至少 500ms 才更新速度，避免抖动
+              if (elapsed >= 500) {
+                speed = Math.round((downloadedBytes - lastSpeedBytes) * 1000 / elapsed);
+                lastTime = now;
+                lastSpeedBytes = downloadedBytes;
+              }
+              if (onProgress) {
+                onProgress({
+                  file: path.basename(filePath),
+                  current: downloadedFiles + 1,
+                  total: totalFiles,
+                  progress: totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0,
+                  downloadedBytes,
+                  totalBytes,
+                  speed,
+                  source: actualSource
+                });
+              }
+            },
+            timeout: 600000,
+            retries: 3,
+            stallTimeout: 60000
+          });
+          _dbg(`[${i}/${totalFiles}] 文件完成: ${filePath}（单源${useMirror ? '镜像' : '官方'}，无多源切换）`);
         } else {
-          // 无 raw 下载项的文件（如目录占位）写空文件
-          fs.writeFileSync(destPath, '');
+          // 无 raw 下载项：可能是目录占位条目（如 bin、bin/dtplugin）。
+          // Mojang manifest 中目录条目没有 downloads.raw，直接写空文件会抛 EISDIR，
+          // 导致整个并发任务崩溃、反复重下并回退到其他源。这里只确保目录存在。
+          const isDir = filePath.endsWith('/') || fileInfo.type === 'directory';
+          try {
+            if (isDir) {
+              fs.mkdirSync(destPath, { recursive: true });
+            } else if (!fs.existsSync(destPath)) {
+              // 普通占位文件（无下载源）：写空文件
+              fs.writeFileSync(destPath, '');
+            }
+          } catch (e) {
+            // 目录已存在等情况直接忽略，不中断下载流程
+            console.warn(`[Java] 占位条目处理失败(忽略): ${filePath}: ${e.message}`);
+          }
         }
 
         // 非Windows 平台需要补可执行位

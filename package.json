@@ -1,6 +1,6 @@
 {
   "name": "versepc",
-  "version": "1.3.16",
+  "version": "1.3.17",
   "description": "VersePC - Minecraft Launcher",
   "author": {
     "name": "豆杰",
@@ -50,6 +50,7 @@
     "directories": {
       "output": "dist"
     },
+    "electronDist": "node_modules/electron/dist",
     "electronLanguages": [
       "zh-CN",
       "en-US"
@@ -119,6 +120,7 @@
       "repo": "versePc"
     },
     "win": {
+      "icon": "img/icon.ico",
       "target": [
         {
           "target": "nsis",
