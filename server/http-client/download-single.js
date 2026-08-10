@@ -311,8 +311,12 @@ async function _dlSingle(urlStr, destPath, options = {}) {
                 else { doReject(new Error(`Size mismatch: ${path.basename(destPath)} expected=${tSz} got=${dl}`)); }
                 return;
               }
-              // 0 字节文件：清理后重试
-              if (dl === 0) {
+              // 0 字节文件：仅当服务器声明了内容（tSz>0）却收到 0 字节时才视为失败。
+              // 修复 Java 运行时：jre-legacy 的 lib/security/trusted.libraries 是合法空文件
+              // （SHA1=da39a3ee...，content-length=0）。旧逻辑把 dl===0 一律判为失败，
+              // 导致单个空文件下载报错 → 整个 downloadJavaRuntime 回退到下一个镜像、
+              // 从文件0重新下载全部 203 个文件（用户看到的"重新下载任务"）。
+              if (dl === 0 && tSz > 0) {
                 clean(false);
                 if (rc > 0 && !settled) { setTimeout(() => attempt(rc - 1), 1000); }
                 else { doReject(new Error(`Empty file: ${path.basename(destPath)}`)); }

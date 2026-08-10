@@ -1,13 +1,13 @@
 {
-  "version": "1.3.16",
-  "releaseName": "v1.3.16",
+  "version": "1.3.17",
+  "releaseName": "v1.3.17",
   "releaseDate": "2026-08-10",
-  "releaseNotes": "新增:\n- 新增赞助订单号验证功能，支持输入真实赞助订单号解锁恐龙彩蛋小游戏\n- 恐龙小游戏界面文本支持中文显示\n优化:\n- 优化赞助者卡片UI，移除恐龙emoji与深蓝样式，右上角添加实验标签\n修复:\n- 修复恐龙游戏返回键点击无反应的问题\n- 修复Forge安装、Java检测、整合包下载等多项问题",
+  "releaseNotes": "修复:\n- 修复Java下载时多个数据源同时下载、未选择最快源的问题\n- 修复Java下载进度条跳动、重复下载任务的问题\n- 优化Java运行时下载：自动测速选择最快单一源，下载更稳定\n优化:\n- 优化Java下载测速与源选择逻辑，提升下载体验",
   "files": {
     "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.16/VersePC-Setup-1.3.16.exe",
-      "size": 147042150,
-      "sha256": "4d5fb2da930521a2289d1362638a110c3bf70ada410c97b22b20cb2a5d6d9df4"
+      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.17/VersePC-Setup-1.3.17.exe",
+      "size": 130464567,
+      "sha256": "0E4E63B61FF4F07DE97BBAEDF70B69F0AE31C1023DC57113A511AED7A14D29DD"
     }
   }
 }

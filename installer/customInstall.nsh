@@ -295,6 +295,4 @@ Var CONFIG_BACKUP_PATH
     _versions_done:
 !macroend
 
-!macro customInstallMode
-    StrCpy $isForceInstall "1"
-!macroend
+
