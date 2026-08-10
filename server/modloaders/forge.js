@@ -1067,6 +1067,11 @@ async function mergeForgeLoaderToVersion(versionId, gameVersion, forgeVersion) {
                     _patchedJarPath = path.join(ctx.dirs.LIBRARIES_DIR, 'net', 'minecraftforge', 'forge', `${gameVersion}-${forgeVersion}`, `forge-${gameVersion}-${forgeVersion}-client.jar`);
                 }
                 mergeLog(`mcJar=${_mcJarPath}, clientLzma=${_clientLzmaPath}, output=${_patchedJarPath}`);
+                // 按游戏版本选择匹配的 Java 运行 Forge 安装器，避免用低版本 Java 跑高版本安装器崩溃
+                let _forgePatchJava = null;
+                try {
+                    _forgePatchJava = java.selectJavaForVersion(gameVersion, {}, versions.resolveVersionJson(gameVersion));
+                } catch (_) {}
                 await runPatchProcessor({
                     mcJarPath: _mcJarPath,
                     clientLzmaPath: _clientLzmaPath,
@@ -1074,7 +1079,8 @@ async function mergeForgeLoaderToVersion(versionId, gameVersion, forgeVersion) {
                     profileLibs: ipData.libraries || [],
                     processors: ipData.processors || [],
                     onProgress: null,
-                    logPrefix: '[Forge]'
+                    logPrefix: '[Forge]',
+                    javaPath: _forgePatchJava
                 });
                 mergeLog(`Patch processor completed successfully`);
             }

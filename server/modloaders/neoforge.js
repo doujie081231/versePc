@@ -11,6 +11,7 @@ const ctx = require('../context');
 const utils = require('../utils');
 const http = require('../http-client');
 const versions = require('../versions');
+const java = require('../java');
 
 const { ensureBaseVersionInstalled, isLibValid, getNeoLibMirrorUrl, SERVER_DIR, runPatchProcessor } = require('./shared');
 
@@ -207,12 +208,11 @@ async function installNeoForge(gameVersion, neoVersion, onProgress = null, targe
           try { fs.unlinkSync(installerPath); } catch (_) {}
           continue;
         }
-        const fd = fs.openSync(installerPath, 'r');
-        const buf = Buffer.alloc(4);
-        fs.readSync(fd, buf, 0, 4, 0);
-        fs.closeSync(fd);
-        if (buf[0] !== 0x50 || buf[1] !== 0x4B || buf[2] !== 0x03 || buf[3] !== 0x04) {
-          console.error(`[NeoForge] Installer ZIP magic invalid, retrying...`);
+        // 用 AdmZip 验证完整 ZIP 结构（会解析中央目录），截断/损坏的安装器在此抛错重试，
+        // 避免"magic 正确但解压失败"的残缺文件进入后续安装流程。
+        const _zipCheck = new (require('adm-zip'))(installerPath);
+        if (_zipCheck.getEntries().length === 0) {
+          console.error(`[NeoForge] Installer ZIP 无条目，retrying...`);
           try { fs.unlinkSync(installerPath); } catch (_) {}
           continue;
         }
@@ -1109,6 +1109,13 @@ async function mergeNeoForgeLoaderToVersion(versionId, gameVersion, neoVersion, 
   // 失败时抛出错误，让外层 try/catch 捕获并返回 success=false（避免错误地报告安装成功）
   // 注意：installertools jar 不是 fatjar，需要把 install_profile.json 中 processors[].classpath
   // 的所有 jar 都加入 classpath，否则会抛 NoClassDefFoundError: com/google/gson/GsonBuilder
+  // [CRITICAL] 按游戏版本选择匹配的 Java 运行安装器（NeoForge 26.x 需 Java 25，1.21.x 需 Java 21+）。
+  // 若用低版本 Java（17/21）跑高版本 NeoForge 安装器会直接崩溃退出码 1。选不到时传 null，
+  // 由 runPatchProcessor 回退取候选中最高的 Java。
+  let _patchJava = null;
+  try {
+    _patchJava = java.selectJavaForVersion(mcVer || gameVersion, {}, versionJson);
+  } catch (_) {}
   await runPatchProcessor({
     mcJarPath: _mcJarPath,
     clientLzmaPath: _clientdataPath,
@@ -1116,7 +1123,8 @@ async function mergeNeoForgeLoaderToVersion(versionId, gameVersion, neoVersion, 
     profileLibs,
     processors: profileProcessors,
     onProgress,
-    logPrefix: '[NeoForge]'
+    logPrefix: '[NeoForge]',
+    javaPath: _patchJava
   });
 
   // patched JAR 已生成，复制到版本目录并注册到 libraries

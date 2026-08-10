@@ -822,15 +822,32 @@ public class FixMF {
  * @returns {Promise<void>}
  * @throws {Error} Java 不可用 / installer jar 缺失 / 子进程失败 / patched JAR 未生成
  */
-async function runPatchProcessor({ mcJarPath, clientLzmaPath, patchedJarPath, profileLibs = [], processors = [], onProgress = null, logPrefix = '[NeoForge]' }) {
-    // 1. 查找可用 Java（安装器需要 Java 17+）
-    const candidates = [...java.detectBundledJava(), ...java.detectSystemJava()];
-    const suitable = candidates.find((j) => j.majorVersion >= 17) || candidates[0];
-    if (!suitable) {
+async function runPatchProcessor({ mcJarPath, clientLzmaPath, patchedJarPath, profileLibs = [], processors = [], onProgress = null, logPrefix = '[NeoForge]', javaPath = null }) {
+    // ===== 失败重试机制：准备可用的 Java 候选列表 =====
+    // 1. 收集候选 Java（安装器需要 Java 17+）
+    // 优先使用调用方按版本选定的 Java（如 NeoForge 26.x 需要 Java 25，若用 Java 17/21 跑安装器会崩溃退出码 1）；
+    // 未指定时取所有 >=17 候选中版本最高者。
+    // 安装器执行失败时自动换下一个候选 Java 重试，避免偶发的 Java 版本不匹配 / 进程崩溃导致安装直接失败。
+    const javaCandidates = [];
+    if (javaPath) {
+        javaCandidates.push({ path: javaPath, source: '调用方指定' });
+    }
+    const detectedJava = [...java.detectBundledJava(), ...java.detectSystemJava()]
+        .filter((j) => j.majorVersion >= 17)
+        .sort((a, b) => b.majorVersion - a.majorVersion);
+    for (const j of detectedJava) {
+        if (!javaCandidates.some((c) => c.path === j.path)) {
+            javaCandidates.push({ path: j.path, source: `检测 (Java ${j.majorVersion})` });
+        }
+    }
+    if (javaCandidates.length === 0) {
         throw new Error('未找到 Java 17 或更高版本，无法运行 NeoForge/Forge 安装器');
     }
-    const javaPath = suitable.path;
-    console.log(`${logPrefix} 使用 Java: ${javaPath} (主版本 ${suitable.majorVersion})`);
+    console.log(`${logPrefix} 可用 Java 候选: ${javaCandidates.map((c) => c.source).join(' → ')}`);
+
+    // 将单次安装执行封装为可重试函数，当前使用的 Java 由外层循环通过 currentJavaPath 指定
+    let currentJavaPath = javaCandidates[0].path;
+    const attempt = async () => {
 
     // 2. 检测 loader 类型并定位 installer jar / 输出路径
     // NeoForge patchedJarPath: .../net/neoforged/minecraft-client-patched/<ver>/minecraft-client-patched-<ver>.jar
@@ -929,7 +946,7 @@ async function runPatchProcessor({ mcJarPath, clientLzmaPath, patchedJarPath, pr
 
     // 5. spawn Java 子进程
     await new Promise((resolve, reject) => {
-        const child = spawn(javaPath, args, {
+        const child = spawn(currentJavaPath, args, {
             cwd: targetDir,
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -1003,7 +1020,7 @@ async function runPatchProcessor({ mcJarPath, clientLzmaPath, patchedJarPath, pr
         const _jarsToFix = [_actualOutput, patchedJarPath].filter((p, i, arr) => p && arr.indexOf(p) === i);
         for (const _jarPath of _jarsToFix) {
             try {
-                _fixMinecraftDistsManifest(_jarPath, javaPath, logPrefix);
+                _fixMinecraftDistsManifest(_jarPath, currentJavaPath, logPrefix);
             } catch (e) {
                 console.warn(`${logPrefix} 补充 Minecraft-Dists manifest 属性失败 (${path.basename(_jarPath)}): ${e.message}`);
             }
@@ -1027,6 +1044,30 @@ async function runPatchProcessor({ mcJarPath, clientLzmaPath, patchedJarPath, pr
     const installerLogFile = path.join(targetDir, installerLogFileName);
     if (fs.existsSync(installerLogFile)) {
         try { fs.unlinkSync(installerLogFile); } catch (_) {}
+    }
+    };
+
+    // ===== 失败重试循环：依次尝试每个候选 Java，直至安装成功或全部失败 =====
+    let lastError = null;
+    for (let i = 0; i < javaCandidates.length; i++) {
+        const candidate = javaCandidates[i];
+        currentJavaPath = candidate.path;
+        if (onProgress) onProgress(0.88, `正在使用 ${candidate.source} 运行官方安装器...`);
+        try {
+            await attempt();
+            console.log(`${logPrefix} 安装成功，使用的 Java: ${candidate.source} (${currentJavaPath})`);
+            lastError = null;
+            break;
+        } catch (err) {
+            lastError = err;
+            console.warn(`${logPrefix} 使用 ${candidate.source} 安装失败: ${err.message}`);
+            if (i < javaCandidates.length - 1) {
+                console.warn(`${logPrefix} 尝试下一个候选 Java...`);
+            }
+        }
+    }
+    if (lastError) {
+        throw lastError;
     }
 }
 
