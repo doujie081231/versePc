@@ -44,21 +44,18 @@ let _isBeta = false;
 let UPDATE_JSON_SOURCES = null;
 
 // 私有函数：按 isBeta 初始化更新源列表
+// 多个镜像源 + CDN 缓存源 + 官方直连兜底，任一可用即可读到最新更新信息
 function _ensureSources() {
   if (UPDATE_JSON_SOURCES) return;
-  if (_isBeta) {
-    UPDATE_JSON_SOURCES = [
-      'https://ghfast.top/https://raw.githubusercontent.com/doujie081231/VersePC-beta/main/update.json',
-      'https://ghproxy.net/https://raw.githubusercontent.com/doujie081231/VersePC-beta/main/update.json',
-      'https://cdn.jsdelivr.net/gh/doujie081231/VersePC-beta@main/update.json',
-    ];
-  } else {
-    UPDATE_JSON_SOURCES = [
-      'https://ghfast.top/https://raw.githubusercontent.com/doujie081231/Verse/main/update.json',
-      'https://ghproxy.net/https://raw.githubusercontent.com/doujie081231/Verse/main/update.json',
-      'https://cdn.jsdelivr.net/gh/doujie081231/Verse@main/update.json',
-    ];
-  }
+  const repo = _isBeta ? 'VersePC-beta' : 'Verse';
+  // 尽量多放可用的镜像源，避免单个源不可用时无法检测更新
+  UPDATE_JSON_SOURCES = [
+    'https://ghfast.top/https://raw.githubusercontent.com/doujie081231/' + repo + '/main/update.json',
+    'https://ghproxy.net/https://raw.githubusercontent.com/doujie081231/' + repo + '/main/update.json',
+    'https://gh-proxy.com/https://raw.githubusercontent.com/doujie081231/' + repo + '/main/update.json',
+    'https://cdn.jsdelivr.net/gh/doujie081231/' + repo + '@main/update.json',
+    'https://raw.githubusercontent.com/doujie081231/' + repo + '/main/update.json',
+  ];
 }
 
 // 下载镜像转换函数（多代理轮询下载 GitHub Release，按速度排序）
@@ -75,39 +72,57 @@ const DOWNLOAD_MIRRORS = [
     }
     return url;
   },
-  (url) => url.replace('https://github.com/', 'https://mirror.ghproxy.com/https://github.com/'),
+  (url) => {
+    if (url.indexOf('https://github.com/') === 0) {
+      return 'https://gh-proxy.com/' + url;
+    }
+    return url;
+  },
+  (url) => {
+    if (url.indexOf('https://github.com/') === 0) {
+      return 'https://ghproxy.link/' + url;
+    }
+    return url;
+  },
   (url) => url,
 ];
 
 /**
- * 从多个源获取 update.json
+ * 从多个源并发获取 update.json
+ * 所有源同时发起请求，谁先返回有效结果就用谁，避免单个源不可用时串行等待
  * @returns {Promise<Object|null>} 更新信息对象，获取失败返回 null
  */
 async function fetchUpdateJson() {
   _ensureSources();
   const bust = Date.now();
-  for (const url of UPDATE_JSON_SOURCES) {
+
+  // 每个源独立获取，返回数据或 null
+  const trySource = async (url) => {
     try {
       const fetchUrl = url + '?t=' + bust;
-      console.log('[Updater] Trying source:', fetchUrl.substring(0, 80));
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), 6000);
       const response = await net.fetch(fetchUrl, { signal: controller.signal });
       clearTimeout(timeout);
       if (!response.ok) {
-        console.log('[Updater] Source returned', response.status);
-        continue;
+        console.log('[Updater] Source returned', response.status, '-', url.substring(0, 60));
+        return null;
       }
       const data = await response.json();
       if (data && data.version && data.files) {
-        console.log('[Updater] Got update info, version:', data.version);
+        console.log('[Updater] Got update info, version:', data.version, '-', url.substring(0, 60));
         return data;
       }
+      return null;
     } catch (e) {
-      console.log('[Updater] Source failed:', e.message);
+      console.log('[Updater] Source failed:', e.message, '-', url.substring(0, 60));
+      return null;
     }
-  }
-  return null;
+  };
+
+  // 并发发起所有源的请求，第一个成功的结果胜出
+  const results = await Promise.all(UPDATE_JSON_SOURCES.map(trySource));
+  return results.find((data) => data !== null) || null;
 }
 
 /**
