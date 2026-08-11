@@ -1,13 +1,1 @@
-{
-  "version": "1.3.19",
-  "releaseName": "v1.3.19",
-  "releaseDate": "2026-08-10",
-  "releaseNotes": "修复:\n- 修复 NeoForge 整合包启动时因 classpath 包含版本目录 jar 导致的 DEV 模式误判问题（The patched Minecraft jar is missing / Couldn't find NeoForgeMod.class）\n- 修复本地 zip 整合包导入时版本名含非法符号导致的路径错误（ENOENT），避免路径无法识别",
-  "files": {
-    "win-x64": {
-      "url": "https://github.com/doujie081231/Verse/releases/download/v1.3.19/VersePC-Setup-1.3.19.exe",
-      "size": 147131474,
-      "sha256": "FD07B7711FD00BBC0559000E62E23D93A166AF83F04F33D3D0D496E7C6D703BE"
-    }
-  }
-}
+ew0KICAidmVyc2lvbiI6ICIxLjMuMTkiLA0KICAicmVsZWFzZU5hbWUiOiAidjEuMy4xOSIsDQogICJyZWxlYXNlRGF0ZSI6ICIyMDI2LTA4LTEwIiwNCiAgInJlbGVhc2VOb3RlcyI6ICLkv67lpI06XG4tIOS/ruWkniBOZW9Gb3JnZSDmlbTlkIjljIXlkK/liqjml7blm6AgY2xhc3NwYXRoIOWMheWQq+eJiOacrOebruW9lSBqYXIg5a+86Ie055qEIERFViDmqKHlvI/or6/liKTpl67popjvvIhUaGUgcGF0Y2hlZCBNaW5lY3JhZnQgamFyIGlzIG1pc3NpbmcgLyBDb3VsZG4ndCBmaW5kIE5lb0ZvcmdlTW9kLmNsYXNz77yJXG4tIOS/ruWkjeacrOWcsCB6aXAg5pW05ZCI5YyF5a+85YWl5pe254mI5pys5ZCN5ZCr6Z2e5rOV56ym5Y+35a+86Ie055qE6Lev5b6E6ZSZ6K+v77yIRU5PRU5U77yJ77yM6YG/5YWN6Lev5b6E5peg5rOV6K+G5YirIiwNCiAgImZpbGVzIjogew0KICAgICJ3aW4teDY0Ijogew0KICAgICAgInVybCI6ICJodHRwczovL2dpdGh1Yi5jb20vZG91amllMDgxMjMxL3ZlcnNlUGMvcmVsZWFzZXMvZG93bmxvYWQvdjEuMy4xOS9WZXJzZVBDLVNldHVwLTEuMy4xOS5leGUiLA0KICAgICAgInNpemUiOiAxNDcxMzE0NzQsDQogICAgICAic2hhMjU2IjogIkZEMDdCNzcxMUZEMDBCQkMwNTU5MDAwRTYyRTIzRDkzQTE2NkFGODNGMDRGMzNEM0QwRDQ5NkU3QzZENzAzQkUiDQogICAgfQ0KICB9DQp9
