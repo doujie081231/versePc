@@ -1,1 +1,13 @@
-ew0KICAidmVyc2lvbiI6ICIxLjMuMTkiLA0KICAicmVsZWFzZU5hbWUiOiAidjEuMy4xOSIsDQogICJyZWxlYXNlRGF0ZSI6ICIyMDI2LTA4LTEwIiwNCiAgInJlbGVhc2VOb3RlcyI6ICLkv67lpI06XG4tIOS/ruWkniBOZW9Gb3JnZSDmlbTlkIjljIXlkK/liqjml7blm6AgY2xhc3NwYXRoIOWMheWQq+eJiOacrOebruW9lSBqYXIg5a+86Ie055qEIERFViDmqKHlvI/or6/liKTpl67popjvvIhUaGUgcGF0Y2hlZCBNaW5lY3JhZnQgamFyIGlzIG1pc3NpbmcgLyBDb3VsZG4ndCBmaW5kIE5lb0ZvcmdlTW9kLmNsYXNz77yJXG4tIOS/ruWkjeacrOWcsCB6aXAg5pW05ZCI5YyF5a+85YWl5pe254mI5pys5ZCN5ZCr6Z2e5rOV56ym5Y+35a+86Ie055qE6Lev5b6E6ZSZ6K+v77yIRU5PRU5U77yJ77yM6YG/5YWN6Lev5b6E5peg5rOV6K+G5YirIiwNCiAgImZpbGVzIjogew0KICAgICJ3aW4teDY0Ijogew0KICAgICAgInVybCI6ICJodHRwczovL2dpdGh1Yi5jb20vZG91amllMDgxMjMxL3ZlcnNlUGMvcmVsZWFzZXMvZG93bmxvYWQvdjEuMy4xOS9WZXJzZVBDLVNldHVwLTEuMy4xOS5leGUiLA0KICAgICAgInNpemUiOiAxNDcxMzE0NzQsDQogICAgICAic2hhMjU2IjogIkZEMDdCNzcxMUZEMDBCQkMwNTU5MDAwRTYyRTIzRDkzQTE2NkFGODNGMDRGMzNEM0QwRDQ5NkU3QzZENzAzQkUiDQogICAgfQ0KICB9DQp9
+{
+  "version": "1.4.0",
+  "releaseName": "v1.4.0",
+  "releaseDate": "2026-08-11",
+  "releaseNotes": "新增:\n- 新增「快速下载」更新功能，走国内服务器差分增量下载，仅下载变化数据块，速度更快\n\n修复:\n- 修复启动后页面白屏问题：重构白屏检测逻辑（由画面像素对比度判断），检测到白屏自动切换兼容模式并重启\n- 修复 1.20.1 Forge 整合包启动立即崩溃且无日志问题（CDS 共享归档与 Java 版本不匹配导致启动失败）\n- 移除强制 GPU 加速开关，避免显卡驱动有问题的机器上强行使用硬件加速导致白屏",
+  "files": {
+    "win-x64": {
+      "url": "https://github.com/doujie081231/versePc/releases/download/v1.4.0/VersePC-Setup-1.4.0.exe",
+      "size": 156269295,
+      "sha256": "09CBE6F9261D4E0F6BFD0317D34A8AFE3F168A1D5F7DE995BAD3CDA4C83DFD4C"
+    }
+  }
+}

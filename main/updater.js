@@ -30,9 +30,15 @@ function getAutoUpdater() {
 let updateDownloaded = false;       // 更新是否已下载完成
 let updateAvailableInfo = null;     // 可用的更新信息（用于弹窗通知）
 let updateDownloadedPath = null;    // 已下载的安装包路径
+let _officialActive = false;        // 是否已由官方更新器接管（增量补丁通道）
+let _officialFallbackDone = false;  // 官方通道失败后是否已回退到多源检测
 
 // 更新配置文件路径 —— 统一走 paths.js，避免硬编码 ~/.versepc 导致数据回退到 C 盘
 const UPDATE_CONFIG_PATH = require('./paths').UPDATE_CONFIG_FILE;
+
+// 增量补丁服务器（国内直连，速度快）
+// 服务器上存放每一版的全量安装包，供"快速下载"按钮使用
+const QUICK_DOWNLOAD_BASE = 'https://www.verselauncher.cn/download';
 
 // 依赖注入的句柄
 let _getMainWindow = null;
@@ -382,10 +388,9 @@ function sendToUpdateUI(channel, data) {
 
 /**
  * 初始化自动更新器 - 启动后静默检查，发现新版本弹出通知
+ * 走多源镜像检测（国内可用），下载走多镜像加速
  */
 function initAutoUpdater() {
-  const config = loadUpdateConfig();
-
   setTimeout(async () => {
     try {
       sendToUpdateUI('checking-for-update');
@@ -490,6 +495,61 @@ async function doDownloadUpdate(updateInfo) {
 }
 
 /**
+ * 快速下载更新包（走国内服务器，差分增量下载）
+ * 通过 electron-updater 从服务器读取 latest.yml + blockmap，
+ * 只下载与当前已安装版本不同的数据块，通常是几 MB 而非整个安装包
+ * @param {Object} updateInfo - 更新信息
+ * @returns {Promise<void>}
+ */
+async function doQuickDownloadUpdate(updateInfo) {
+  sendToUpdateUI('start-download', {});
+
+  try {
+    const autoUpdater = getAutoUpdater();
+    // 指向国内服务器，走差分下载
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: QUICK_DOWNLOAD_BASE,
+      channel: 'latest',
+    });
+
+    // 检查服务器上的更新信息
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo) {
+      sendToUpdateUI('update-error', { message: '服务器上没有可用的更新信息' });
+      return;
+    }
+
+    _officialActive = true;
+
+    // 差分下载（只下载变化的数据块）
+    await autoUpdater.downloadUpdate((progress) => {
+      sendToUpdateUI('download-progress', {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      });
+    });
+
+    updateDownloaded = true;
+    sendToUpdateUI('update-downloaded', {
+      version: result.updateInfo.version,
+      releaseName: result.updateInfo.releaseName,
+    });
+    showUpdateReadyDialog({
+      version: result.updateInfo.version,
+      releaseName: result.updateInfo.releaseName,
+    });
+  } catch (e) {
+    console.log('[Updater] Differential download failed, falling back to full mirrors');
+    _officialActive = false;
+    // 差分下载失败（如首次安装无旧版本数据），回退到多镜像全量下载
+    await doDownloadUpdate(updateInfo);
+  }
+}
+
+/**
  * 更新下载完成后弹窗询问是否立即安装
  * @param {Object} info - 更新信息
  */
@@ -571,8 +631,37 @@ function registerUpdaterIPC() {
     }
   });
 
+  ipcMain.handle('updater:quick-download-update', async () => {
+    try {
+      if (!updateAvailableInfo) {
+        // 未检测到更新时，读取服务器上最新的 update.json 作为来源
+        const serverInfo = await fetchUpdateJson();
+        if (serverInfo && compareVersions(serverInfo.version, app.getVersion()) > 0) {
+          updateAvailableInfo = serverInfo;
+        } else {
+          return { success: false, error: '没有可用的更新信息' };
+        }
+      }
+      await doQuickDownloadUpdate(updateAvailableInfo);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('updater:install-update', async () => {
     if (updateDownloaded) {
+      // 官方增量通道：用 electron-updater 安装
+      if (_officialActive) {
+        try {
+          const autoUpdater = getAutoUpdater();
+          if (_setShuttingDown) _setShuttingDown(true);
+          autoUpdater.quitAndInstall();
+          return { success: true };
+        } catch (e) {
+          // 回退到镜像安装
+        }
+      }
       runInstallerAndQuit();
       return { success: true };
     }

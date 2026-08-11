@@ -257,6 +257,12 @@ const PageSettingsOther = {
                   </svg>
                   下载更新
                 </button>
+                <button class="btn btn-accent" id="updater-quick-download-btn" style="display:none" onclick="handleQuickDownloadUpdate()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                  </svg>
+                  快速下载（增量）
+                </button>
                 <button class="btn btn-success" id="updater-install-btn" style="display:none" onclick="handleInstallUpdate()">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;">
                     <polyline points="20 6 9 17 4 12"/>

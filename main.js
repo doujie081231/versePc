@@ -276,23 +276,68 @@ async function createWindow() {
   // 兜底：如果内联脚本未能触发，等首次渲染完成后显示
   mainWindow.once('ready-to-show', () => _showMainWindow('ready-to-show'));
 
-  // GPU 黑屏检测看门狗：15 秒内页面若未渲染出任何子节点，则判定 GPU 加速异常
-  // 写入 .disable-gpu 标记文件，下次启动自动禁用 GPU 加速并显示降级提示页
-  const _gpuWatchdog = setTimeout(() => {
-    try {
-      mainWindow.webContents.executeJavaScript('document.body.children.length').then(len => {
-        if (len === 0) {
-          console.log('[GPU] Page not rendered in 8s, flagging GPU disable for next launch');
-          require('fs').writeFileSync(disableGpuFile, '1');
-          const _gpuFg = bgColor === '#ffffff' ? '#1a1a1a' : '#e5e5e5';
-          const _gpuSub = bgColor === '#ffffff' ? '#666' : '#888';
-          const _gpuBtn = bgColor === '#ffffff' ? '#ccc' : '#555';
-          mainWindow.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<html><body style="background:${bgColor};color:${_gpuFg};font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>VersePC 启动异常</h2><p>页面加载失败，可能是显卡驱动问题</p><p style="color:${_gpuSub};font-size:13px">已自动标记禁用GPU加速，请重启应用</p><p style="margin-top:20px"><button onclick="location.href='https://github.com/doujie081231/versePc/issues'" style="padding:8px 16px;border:1px solid ${_gpuBtn};border-radius:6px;background:transparent;color:${_gpuFg};cursor:pointer">报告问题</button></div></div></body></html>`));
+  // GPU 白屏检测看门狗：页面加载完成后周期性截屏，分析画面像素对比度。
+  // 若画面长时间接近纯色（无实际内容），判定 GPU 渲染/合成异常，写入 .disable-gpu
+  // 标记文件，下次启动自动禁用硬件加速并显示降级提示页。
+  // 说明：旧实现用 document.body.children.length 判断，但 index.html 的 body 有大量
+  // 内联内容，该值恒 > 0，导致看门狗永远无法触发，白屏时无法自动降级。
+  let _blankCheckCount = 0;
+  let _gpuWatchdog = null;
+  // 检测当前画面对比度：返回 0-255 的亮度差（接近 0 表示纯色/空白画面）
+  function _detectScreenContrast() {
+    return mainWindow.webContents.capturePage().then((image) => {
+      if (!image || image.isEmpty()) return 0;
+      const size = image.getSize();
+      const w = size.width, h = size.height;
+      if (!w || !h) return 0;
+      const bitmap = image.toBitmap();
+      const step = Math.max(1, Math.round(Math.max(w, h) / 80));
+      let minLum = 255, maxLum = 0, samples = 0;
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4;
+          const lum = Math.round(0.299 * bitmap[idx + 2] + 0.587 * bitmap[idx + 1] + 0.114 * bitmap[idx]);
+          if (lum < minLum) minLum = lum;
+          if (lum > maxLum) maxLum = lum;
+          samples++;
         }
-      }).catch(() => {});
-    } catch (e) {}
-  }, 15000);
-  mainWindow.webContents.once('did-finish-load', () => clearTimeout(_gpuWatchdog));
+      }
+      return samples === 0 ? 0 : (maxLum - minLum);
+    }).catch(() => 0);
+  }
+  function _startGpuWatchdog() {
+    if (_gpuWatchdog) clearInterval(_gpuWatchdog);
+    _gpuWatchdog = setInterval(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+      _detectScreenContrast().then((spread) => {
+        if (spread < 12) {
+          _blankCheckCount++;
+          if (_blankCheckCount >= 3) {
+            console.log(`[GPU] Screen appears blank (contrast=${spread}), disabling GPU for next launch`);
+            // 记录本次启动前是否已是软件渲染（.disable-gpu 已存在），用于防止自动重启死循环
+            const _alreadySoftware = (() => { try { return require('fs').existsSync(disableGpuFile); } catch (e) { return false; } })();
+            try { require('fs').writeFileSync(disableGpuFile, '1'); } catch (e) {}
+            if (_gpuWatchdog) clearInterval(_gpuWatchdog);
+            // 显示降级提示并自动重启（软件渲染），避免用户手动操作
+            const _gpuFg = bgColor === '#ffffff' ? '#1a1a1a' : '#e5e5e5';
+            const _gpuSub = bgColor === '#ffffff' ? '#666' : '#888';
+            const _gpuBtn = bgColor === '#ffffff' ? '#ccc' : '#555';
+            mainWindow.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<html><body style="background:${bgColor};color:${_gpuFg};font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>VersePC 启动异常</h2><p>页面加载失败，可能是显卡驱动问题</p><p style="color:${_gpuSub};font-size:13px">${_alreadySoftware ? '请尝试更新显卡驱动，或卸载后重新安装设置' : '已自动切换为兼容模式，正在重新启动...'}</p><p style="margin-top:20px"><button onclick="location.href='https://github.com/doujie081231/versePc/issues'" style="padding:8px 16px;border:1px solid ${_gpuBtn};border-radius:6px;background:transparent;color:${_gpuFg};cursor:pointer">报告问题</button></div></div></body></html>`));
+            // 仅当本次尚未处于软件渲染时才自动重启，避免重启后仍白屏造成死循环
+            if (!_alreadySoftware) {
+              setTimeout(() => { try { app.relaunch(); app.exit(0); } catch (e) { try { process.exit(1); } catch (e2) {} } }, 2500);
+            }
+          }
+        } else {
+          // 画面有实际内容，渲染正常，停止看门狗
+          _blankCheckCount = 0;
+          if (_gpuWatchdog) clearInterval(_gpuWatchdog);
+        }
+      });
+    }, 5000);
+  }
+  // 首次渲染完成后延迟 5 秒再启动检测，给 splash 动画留出渲染时间
+  mainWindow.webContents.once('did-finish-load', () => setTimeout(_startGpuWatchdog, 5000));
 
   // 渲染进程崩溃恢复：OOM 自动重载最多 3 次，其他原因显示崩溃页
   let rendererCrashRetries = 0;
@@ -738,7 +783,8 @@ app.commandLine.appendSwitch('enable-use-zoom-for-dsf', 'true');
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// 注意：不启用 ignore-gpu-blocklist。该开关会让 Chromium 忽略显卡黑名单，
+// 在本应回退到软件渲染的机器上强行使用有问题的显卡，反而导致整页白屏。
 // 暴露 V8 GC，让内存优化能真正回收 V8 堆空间
 app.commandLine.appendSwitch('expose-gc');
 app.commandLine.appendSwitch('js-flags', '--expose-gc');

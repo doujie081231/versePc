@@ -1,6 +1,6 @@
 {
   "name": "versepc",
-  "version": "1.3.19",
+  "version": "1.4.0",
   "description": "VersePC - Minecraft Launcher",
   "author": {
     "name": "豆杰",
@@ -117,7 +117,7 @@
     "publish": {
       "provider": "github",
       "owner": "doujie081231",
-      "repo": "versePc"
+      "repo": "Verse"
     },
     "win": {
       "icon": "img/icon.ico",
@@ -198,7 +198,7 @@
       "include": "installer/customInstall.nsh",
       "license": "installer/license.txt",
       "unicode": true,
-      "differentialPackage": false,
+      "differentialPackage": true,
       "warningsAsErrors": false,
       "menuCategory": "VersePC",
       "createDesktopShortcut": "always",

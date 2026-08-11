@@ -331,7 +331,10 @@ function buildLaunchArguments(versionJson, settings, account, versionId, customG
     try {
       const stat = fs.statSync(cdsArchive);
       if (stat.size > 1024) {
-        jvmArgs.push(`-Xshare:on`, `-XX:SharedArchiveFile=${cdsArchive}`);
+        // 使用 -Xshare:auto 而非 -Xshare:on：归档与当前 Java 版本不匹配时，
+        // JVM 会静默回退到不共享，而不是在启动阶段直接报错退出（"Unable to use shared archive"）。
+        // 旧逻辑 -Xshare:on 在 Java 升级/更换后会导致每次启动都立即崩溃且无任何游戏日志。
+        jvmArgs.push(`-Xshare:auto`, `-XX:SharedArchiveFile=${cdsArchive}`);
       }
     } catch (e) {
     }

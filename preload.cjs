@@ -331,6 +331,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 下载最新更新包 */
     downloadUpdate: () => ipcRenderer.invoke('updater:download-update'),
 
+    /** 快速下载更新包（走国内服务器） */
+    quickDownloadUpdate: () => ipcRenderer.invoke('updater:quick-download-update'),
+
     /** 安装已下载的更新 */
     installUpdate: () => ipcRenderer.invoke('updater:install-update'),
 

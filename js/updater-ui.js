@@ -28,6 +28,7 @@
         document.getElementById('updater-skip-btn').style.display = 'none';
         document.getElementById('updater-release-btn').style.display = 'none';
         document.getElementById('updater-download-btn').style.display = 'none';
+        document.getElementById('updater-quick-download-btn').style.display = 'none';
         document.getElementById('updater-install-btn').style.display = 'none';
         document.getElementById('updater-release-notes').style.display = 'none';
     }
@@ -69,6 +70,7 @@
         const skipBtn = document.getElementById('updater-skip-btn');
         const releaseBtn = document.getElementById('updater-release-btn');
         const downloadBtn = document.getElementById('updater-download-btn');
+        const quickDownloadBtn = document.getElementById('updater-quick-download-btn');
         const installBtn = document.getElementById('updater-install-btn');
 
         switch (channel) {
@@ -85,6 +87,7 @@
                 skipBtn.style.display = '';
                 releaseBtn.style.display = '';
                 downloadBtn.style.display = '';
+                quickDownloadBtn.style.display = '';
                 installBtn.style.display = 'none';
                 showReleaseNotes(data.releaseNotes);
                 showUpdatePopup(data);
@@ -124,6 +127,8 @@
                 statusArea.innerHTML = '<div class="update-status update-status--loading"><span class="update-status__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg></span><span class="update-status__body">正在下载更新...</span></div>';
                 downloadBtn.disabled = true;
                 downloadBtn.textContent = '下载中...';
+                quickDownloadBtn.disabled = true;
+                quickDownloadBtn.textContent = '下载中...';
                 break;
 
             case 'download-progress': {
@@ -145,6 +150,7 @@
                 skipBtn.style.display = 'none';
                 releaseBtn.style.display = 'none';
                 downloadBtn.style.display = 'none';
+                quickDownloadBtn.style.display = 'none';
                 installBtn.style.display = '';
                 break;
         }
@@ -170,6 +176,20 @@
                 '<div style="color:#ef4444;">下载失败：' + e.message + '</div>';
             downloadBtn.disabled = false;
             downloadBtn.textContent = '下载更新';
+        }
+    };
+
+    window.handleQuickDownloadUpdate = async function() {
+        const quickBtn = document.getElementById('updater-quick-download-btn');
+        quickBtn.disabled = true;
+        quickBtn.textContent = '下载中...';
+        try {
+            await api.updater.quickDownloadUpdate();
+        } catch (e) {
+            document.getElementById('updater-status-area').innerHTML =
+                '<div style="color:#ef4444;">快速下载失败：' + e.message + '</div>';
+            quickBtn.disabled = false;
+            quickBtn.textContent = '快速下载（增量）';
         }
     };
 
