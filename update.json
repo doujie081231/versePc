@@ -6,8 +6,8 @@
   "files": {
     "win-x64": {
       "url": "https://github.com/doujie081231/versePc/releases/download/v1.4.0/VersePC-Setup-1.4.0.exe",
-      "size": 156269295,
-      "sha256": "09CBE6F9261D4E0F6BFD0317D34A8AFE3F168A1D5F7DE995BAD3CDA4C83DFD4C"
+      "size": 156269129,
+      "sha256": "BAD9879CD73E434C7AF371BC1076A55046A17ED9171356A3511214E4588CFB97"
     }
   }
 }

@@ -943,10 +943,21 @@ async function launchGame(versionId, settings, account, checkOnly = false) {
       return { success: true, ready: true, message: '所有文件就绪，可以启动' };
     }
 
-    // 最终安全检查：确保关键 natives (lwjgl.dll 等) 已解压，否则游戏会因 UnsatisfiedLinkError 崩溃
+    // 最终安全检查：确保关键 natives (lwjgl.dll 等) 已解压，否则游戏会因 UnsatisfiedLinkError 崩溃。
+    // 到这里 depCheck 已确保 native jar 下载就绪，若 dll 仍缺失则本机 jar 可能损坏/缺失导致解压被跳过，
+    // 此时重新解压一次（解开后 dll 与会话运行无关，无需重建 classpath）。
     {
       const { criticalNatives, filterMissing } = checkCriticalNatives(versionJson);
-      const stillMissing = filterMissing(criticalNatives);
+      let stillMissing = filterMissing(criticalNatives);
+      if (stillMissing.length > 0) {
+        console.log(`[LaunchGame] 最终检查发现 ${stillMissing.length} 个关键原生库缺失，尝试重新解压: ${stillMissing.join(', ')}`);
+        try {
+          natives.extractNatives(versionJson, cleanVersionId, externalVersionDir);
+          stillMissing = filterMissing(criticalNatives);
+        } catch (e) {
+          console.error(`[LaunchGame] 最终重新解压 natives 失败: ${e.message}`);
+        }
+      }
       if (stillMissing.length > 0) {
         const msg = `关键原生库缺失，无法启动: ${stillMissing.join(', ')}。请重新下载整合包或检查网络后重试。`;
         console.error(`[LaunchGame] ${msg}`);

@@ -15,6 +15,7 @@ const ctx = require('./context');
 const utils = require('./utils');
 const http = require('./http-client');
 const versions = require('./versions');
+const natives = require('./natives');
 
 // ============================================================================
 // 懒加载 server.js 中尚未抽取到子模块的函数 (避免循环依赖)
@@ -740,6 +741,16 @@ async function performRepair(sessionId, versionId) {
                     if (extraRepaired > 0) repaired += extraRepaired;
                 }
             }
+        }
+
+        // Phase 5.7: 重新解压 natives（修复下载 native jar 后未解压出 dll 的问题）
+        try {
+            session.stage = 'natives';
+            session.message = '正在重新解压原生库...';
+            const nativesDir = natives.extractNatives(versionJson, versionId);
+            rlog(`Phase5.7 重新解压 natives 完成: ${nativesDir}`);
+        } catch (e) {
+            rlog(`Phase5.7 natives 解压异常: ${e.message}`);
         }
 
         // Phase 6: Complete (95-100%)
